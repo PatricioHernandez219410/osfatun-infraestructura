@@ -1,0 +1,92 @@
+# =============================================================================
+# CloudNativePG - PostgreSQL Cluster
+# =============================================================================
+# Base de datos principal del cluster. Se ejecuta EXCLUSIVAMENTE en un nodo
+# dedicado etiquetado con node-role=database y taint correspondiente.
+#
+# Preparacion del nodo dedicado (ejecutar una sola vez):
+#   kubectl label node <NOMBRE_NODO_DB> node-role=database
+#   kubectl taint node <NOMBRE_NODO_DB> node-role=database:NoSchedule
+# =============================================================================
+
+# --- Namespace ---------------------------------------------------------------
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: database
+
+---
+# --- Credenciales iniciales para el usuario de aplicacion --------------------
+# CloudNativePG usa este secret en el bootstrap para crear el owner de la DB.
+# Las mismas credenciales se replican en cada namespace que necesite acceso.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: main-db-app-credentials
+  namespace: database
+type: kubernetes.io/basic-auth
+stringData:
+  username: app
+  password: ${DB_APP_PASSWORD}
+
+---
+# --- Credenciales del superusuario -------------------------------------------
+apiVersion: v1
+kind: Secret
+metadata:
+  name: main-db-superuser-credentials
+  namespace: database
+type: kubernetes.io/basic-auth
+stringData:
+  username: postgres
+  password: ${DB_SUPERUSER_PASSWORD}
+
+---
+# --- CloudNativePG: Cluster --------------------------------------------------
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: main-db
+  namespace: database
+spec:
+  instances: 1
+
+  imageName: ghcr.io/cloudnative-pg/postgresql:16
+
+  bootstrap:
+    initdb:
+      database: keycloak
+      owner: app
+      secret:
+        name: main-db-app-credentials
+
+  superuserSecret:
+    name: main-db-superuser-credentials
+
+  storage:
+    size: 10Gi
+    storageClass: local-path
+
+  affinity:
+    nodeSelector:
+      node-role: database
+    tolerations:
+      - key: node-role
+        value: database
+        effect: NoSchedule
+
+  postgresql:
+    parameters:
+      max_connections: "200"
+      shared_buffers: "256MB"
+
+  resources:
+    requests:
+      memory: 512Mi
+      cpu: 500m
+    limits:
+      memory: 1Gi
+      cpu: 1000m
+
+  monitoring:
+    enablePodMonitor: false

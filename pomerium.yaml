@@ -1,0 +1,14 @@
+apiVersion: ingress.pomerium.io/v1
+kind: Pomerium
+metadata:
+  name: global
+spec:
+  secrets: pomerium/bootstrap
+  authenticate:
+      url: https://authenticate.prueba.ticksar.com.ar
+  identityProvider:
+      provider: oidc
+      secret: pomerium/idp
+      url: "https://auth.osfatun.ticksar.com.ar/realms/osfatun"
+  certificates:
+      - pomerium/pomerium-proxy-tls

@@ -1,0 +1,183 @@
+# =============================================================================
+# Keycloak - Identity Provider
+# =============================================================================
+# Incluye: Namespace, Credenciales DB (replica), Keycloak, Issuer, Ingress
+# Se ejecuta en el nodo control-plane de K3s.
+# PostgreSQL es gestionado por CloudNativePG (ver cloudnativepg.yaml).
+# =============================================================================
+
+# --- Namespace ---------------------------------------------------------------
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: keycloak
+
+---
+# --- Credenciales DB (replica del secret en namespace database) --------------
+# IMPORTANTE: el password debe coincidir con main-db-app-credentials de
+# cloudnativepg.yaml. Mantener sincronizado manualmente.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: keycloak-db-credentials
+  namespace: keycloak
+type: Opaque
+stringData:
+  username: app
+  password: ${DB_APP_PASSWORD}
+
+---
+# --- Keycloak: Credenciales de admin -----------------------------------------
+apiVersion: v1
+kind: Secret
+metadata:
+  name: keycloak-credentials
+  namespace: keycloak
+type: Opaque
+stringData:
+  KEYCLOAK_ADMIN: admin
+  KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
+
+---
+# --- Keycloak: Deployment ----------------------------------------------------
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: keycloak
+  namespace: keycloak
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: keycloak
+  template:
+    metadata:
+      labels:
+        app: keycloak
+    spec:
+      nodeSelector:
+        node-role.kubernetes.io/control-plane: "true"
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+        - key: node-role.kubernetes.io/master
+          operator: Exists
+          effect: NoSchedule
+      containers:
+        - name: keycloak
+          image: quay.io/keycloak/keycloak:25.0
+          args:
+            - start
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: KC_DB
+              value: postgres
+            - name: KC_DB_URL
+              value: jdbc:postgresql://main-db-rw.database.svc.cluster.local:5432/keycloak
+            - name: KC_DB_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: keycloak-db-credentials
+                  key: username
+            - name: KC_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: keycloak-db-credentials
+                  key: password
+            - name: KC_HOSTNAME
+              value: auth.osfatun.com.ar
+            - name: KC_PROXY_HEADERS
+              value: xforwarded
+            - name: KC_HTTP_ENABLED
+              value: "true"
+            - name: KC_HEALTH_ENABLED
+              value: "true"
+          envFrom:
+            - secretRef:
+                name: keycloak-credentials
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: 9000
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: 9000
+            initialDelaySeconds: 60
+            periodSeconds: 30
+          resources:
+            requests:
+              memory: 512Mi
+              cpu: 500m
+            limits:
+              memory: 1Gi
+              cpu: 1000m
+
+---
+# --- Keycloak: Service -------------------------------------------------------
+apiVersion: v1
+kind: Service
+metadata:
+  name: keycloak
+  namespace: keycloak
+spec:
+  selector:
+    app: keycloak
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+
+---
+# --- cert-manager: Issuer para namespace keycloak ----------------------------
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: letsencrypt-prod
+  namespace: keycloak
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    email: darioblanca.lp@gmail.com
+    privateKeySecretRef:
+      name: letsencrypt-prod
+    solvers:
+      - http01:
+          ingress:
+            ingressClassName: pomerium
+
+---
+# --- Keycloak: Ingress (acceso publico, sin autenticacion) -------------------
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: keycloak
+  namespace: keycloak
+  annotations:
+    # cert-manager.io/issuer: letsencrypt-prod  # TEMPORALMENTE DESHABILITADO — restaurar después del Paso 6
+    ingress.pomerium.io/allow_public_unauthenticated_access: "true"
+spec:
+  ingressClassName: pomerium
+  # TLS TEMPORALMENTE DESHABILITADO — restaurar después del Paso 6
+  # tls:
+  #   - hosts:
+  #       - auth.osfatun.com.ar
+  #     secretName: keycloak-tls
+  rules:
+    - host: auth.osfatun.com.ar
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: keycloak
+                port:
+                  number: 8080

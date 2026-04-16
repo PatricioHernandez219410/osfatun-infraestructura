@@ -1,0 +1,441 @@
+# =============================================================================
+# OSFATUN Backend — Django API + Celery + Redis
+# =============================================================================
+# Backend Django con Gunicorn, Celery Worker, Celery Beat y Redis.
+# Requiere: CloudNativePG (PostgreSQL) ya desplegado (ver cloudnativepg.yaml).
+#
+# Antes de aplicar:
+#   1. Crear la base de datos 'osfatun' en PostgreSQL (ver documentación)
+#   2. Reemplazar TODOS los valores CHANGE_ME_*
+#   3. Configurar el pull secret del registry de imágenes
+#   4. Ajustar el dominio en el Ingress
+# =============================================================================
+
+# --- Namespace ---------------------------------------------------------------
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: osfatun-backend
+
+---
+# --- Pull Secret (GitLab Container Registry) --------------------------------
+# Credenciales para descargar la imagen desde el registry privado.
+# Se recomienda generar con:
+#   kubectl create secret docker-registry gitlab-registry \
+#     --namespace=osfatun-backend \
+#     --docker-server=registry.gitlab.com \
+#     --docker-username=<USUARIO> \
+#     --docker-password=<TOKEN> \
+#     --dry-run=client -o yaml
+# y pegar la salida aquí reemplazando este bloque.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: gitlab-registry
+  namespace: osfatun-backend
+type: kubernetes.io/dockerconfigjson
+data:
+  .dockerconfigjson: ${DOCKER_CONFIG_BASE64}
+
+---
+# --- Credenciales DB (replica del secret en namespace database) --------------
+# IMPORTANTE: el password debe coincidir con main-db-app-credentials de
+# cloudnativepg.yaml. Mantener sincronizado manualmente.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: backend-db-credentials
+  namespace: osfatun-backend
+type: Opaque
+stringData:
+  POSTGRES_USER: app
+  POSTGRES_PASSWORD: ${DB_APP_PASSWORD}
+
+---
+# --- Configuración de la aplicación -----------------------------------------
+# Contiene TODAS las variables de entorno que el backend necesita.
+# Las credenciales de DB se cargan desde backend-db-credentials (secret aparte).
+apiVersion: v1
+kind: Secret
+metadata:
+  name: backend-config
+  namespace: osfatun-backend
+type: Opaque
+stringData:
+  # -- Django Core --
+  DEBUG: "False"
+  SECRET_KEY: ${DJANGO_SECRET_KEY}
+  ENV_STAGE: "PRODUCTION"
+  DJANGO_SETTINGS_MODULE: "config.settings.production"
+
+  # -- Base de datos (host apunta al servicio CloudNativePG) --
+  POSTGRES_DB: "osfatun"
+  POSTGRES_HOST: "main-db-rw.database.svc.cluster.local"
+  POSTGRES_PORT: "5432"
+  DB_CONN_MAX_AGE: "60"
+
+  # -- Redis (servicio Redis dentro del mismo namespace) --
+  REDIS_HOST: "redis"
+  REDIS_PORT: "6379"
+  REDIS_DB: "0"
+  REDIS_URL: "redis://redis:6379/0"
+
+  # -- Celery --
+  CELERY_BROKER_URL: "redis://redis:6379/0"
+  CELERY_RESULT_BACKEND: "redis://redis:6379/0"
+
+  # -- Gunicorn --
+  GUNICORN_WORKERS: "4"
+  GUNICORN_THREADS: "2"
+  GUNICORN_TIMEOUT: "120"
+  GUNICORN_MAX_REQUESTS: "1000"
+  GUNICORN_MAX_REQUESTS_JITTER: "50"
+
+  # -- Seguridad y CORS --
+  ALLOWED_HOSTS: "api.osfatun.ticksar.com.ar,localhost"  # <-- Ajustar al dominio real
+  CORS_ORIGIN_ALLOW_ALL: "False"
+  CORS_ORIGIN_WHITELIST: "https://api.osfatun.ticksar.com.ar"  # <-- Ajustar
+  CSRF_TRUSTED_ORIGINS: "https://api.osfatun.ticksar.com.ar"  # <-- Ajustar
+  SECURE_SSL_REDIRECT: "False"  # TLS lo termina Pomerium/Ingress, no Django
+
+  # -- Email (SMTP) --
+  EMAIL_HOST: "smtp.gmail.com"
+  EMAIL_PORT: "587"
+  EMAIL_USE_TLS: "True"
+  EMAIL_HOST_USER: "${EMAIL_HOST_USER}"
+  EMAIL_HOST_PASSWORD: "${EMAIL_HOST_PASSWORD}"
+  DEFAULT_FROM_EMAIL: "${DEFAULT_FROM_EMAIL}"
+
+  # -- Sentry --
+  SENTRY_DSN: "${SENTRY_DSN}"
+  SENTRY_TRACES_SAMPLE_RATE: "0.1"
+
+  # -- WhatsApp Business API --
+  WHATSAPP_API_URL: "https://graph.facebook.com/v21.0"
+  WHATSAPP_API_TOKEN: "${WHATSAPP_API_TOKEN}"
+  WHATSAPP_PHONE_NUMBER_ID: "${WHATSAPP_PHONE_NUMBER_ID}"
+
+  # -- Sistema externo para sincronización --
+  EXTERNAL_SYSTEM_API_URL: "${EXTERNAL_SYSTEM_API_URL}"
+  EXTERNAL_SYSTEM_API_KEY: "${EXTERNAL_SYSTEM_API_KEY}"
+  EXTERNAL_SYSTEM_USERNAME: "${EXTERNAL_SYSTEM_USERNAME}"
+  EXTERNAL_SYSTEM_PASSWORD: "${EXTERNAL_SYSTEM_PASSWORD}"
+
+  # -- Sincronización --
+  SYNC_FREQUENCY_MINUTES: "30"
+  SYNC_ENABLED: "True"
+
+  # -- Webhooks --
+  WEBHOOK_API_URL: "${WEBHOOK_API_URL}"
+  WEBHOOK_API_TOKEN: "${WEBHOOK_API_TOKEN}"
+
+  # -- Logging --
+  LOG_LEVEL: "INFO"
+
+---
+# --- Redis: Deployment -------------------------------------------------------
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  namespace: osfatun-backend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: osfatun-redis
+  template:
+    metadata:
+      labels:
+        app: osfatun-redis
+    spec:
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          command:
+            - redis-server
+            - --appendonly
+            - "yes"
+            - --maxmemory
+            - 256mb
+            - --maxmemory-policy
+            - allkeys-lru
+          ports:
+            - containerPort: 6379
+          resources:
+            requests:
+              memory: 64Mi
+              cpu: 50m
+            limits:
+              memory: 256Mi
+              cpu: 250m
+          readinessProbe:
+            exec:
+              command: ["redis-cli", "ping"]
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            exec:
+              command: ["redis-cli", "ping"]
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          volumeMounts:
+            - name: redis-data
+              mountPath: /data
+      volumes:
+        - name: redis-data
+          emptyDir: {}
+
+---
+# --- Redis: Service ----------------------------------------------------------
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: osfatun-backend
+spec:
+  selector:
+    app: osfatun-redis
+  ports:
+    - port: 6379
+      targetPort: 6379
+
+---
+# --- PVC: Media (archivos subidos por usuarios) -----------------------------
+# NOTA: ReadWriteOnce limita la escritura a un solo nodo.
+# Si se escalan réplicas del backend a múltiples nodos, migrar a
+# ReadWriteMany (NFS) o almacenamiento de objetos (S3).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: backend-media
+  namespace: osfatun-backend
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 5Gi
+
+---
+# --- Backend Django: Deployment ----------------------------------------------
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+  namespace: osfatun-backend
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: osfatun-backend
+  template:
+    metadata:
+      labels:
+        app: osfatun-backend
+    spec:
+      imagePullSecrets:
+        - name: gitlab-registry
+      containers:
+        - name: backend
+          image: ${BACKEND_IMAGE}
+          ports:
+            - name: http
+              containerPort: 8000
+          envFrom:
+            - secretRef:
+                name: backend-config
+            - secretRef:
+                name: backend-db-credentials
+          readinessProbe:
+            httpGet:
+              path: /api/health/
+              port: 8000
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /api/health/
+              port: 8000
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 5
+          resources:
+            requests:
+              memory: 512Mi
+              cpu: 250m
+            limits:
+              memory: 1Gi
+              cpu: 1000m
+          volumeMounts:
+            - name: media
+              mountPath: /src/media
+            - name: static
+              mountPath: /src/staticfiles
+      volumes:
+        - name: media
+          persistentVolumeClaim:
+            claimName: backend-media
+        - name: static
+          emptyDir: {}  # Se regenera en cada inicio con collectstatic
+
+---
+# --- Backend: Service --------------------------------------------------------
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend
+  namespace: osfatun-backend
+spec:
+  selector:
+    app: osfatun-backend
+  ports:
+    - name: http
+      port: 8000
+      targetPort: 8000
+
+---
+# --- Celery Worker: Deployment -----------------------------------------------
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: celery-worker
+  namespace: osfatun-backend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: osfatun-celery-worker
+  template:
+    metadata:
+      labels:
+        app: osfatun-celery-worker
+    spec:
+      imagePullSecrets:
+        - name: gitlab-registry
+      containers:
+        - name: celery-worker
+          image: ${BACKEND_IMAGE}
+          command: ["celery", "-A", "config", "worker", "-l", "INFO", "--concurrency=4"]
+          envFrom:
+            - secretRef:
+                name: backend-config
+            - secretRef:
+                name: backend-db-credentials
+          resources:
+            requests:
+              memory: 256Mi
+              cpu: 100m
+            limits:
+              memory: 512Mi
+              cpu: 500m
+          volumeMounts:
+            - name: media
+              mountPath: /src/media
+      volumes:
+        - name: media
+          persistentVolumeClaim:
+            claimName: backend-media
+
+---
+# --- Celery Beat: Deployment -------------------------------------------------
+# IMPORTANTE: Celery Beat SIEMPRE debe tener exactamente 1 réplica.
+# Múltiples instancias de Beat duplicarían las tareas programadas.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: celery-beat
+  namespace: osfatun-backend
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate  # Evitar que coexistan dos schedulers
+  selector:
+    matchLabels:
+      app: osfatun-celery-beat
+  template:
+    metadata:
+      labels:
+        app: osfatun-celery-beat
+    spec:
+      imagePullSecrets:
+        - name: gitlab-registry
+      containers:
+        - name: celery-beat
+          image: ${BACKEND_IMAGE}
+          command:
+            - celery
+            - -A
+            - config
+            - beat
+            - -l
+            - INFO
+            - --scheduler
+            - django_celery_beat.schedulers:DatabaseScheduler
+          envFrom:
+            - secretRef:
+                name: backend-config
+            - secretRef:
+                name: backend-db-credentials
+          resources:
+            requests:
+              memory: 128Mi
+              cpu: 50m
+            limits:
+              memory: 256Mi
+              cpu: 250m
+
+---
+# --- cert-manager: Issuer para namespace osfatun-backend ---------------------
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: letsencrypt-prod
+  namespace: osfatun-backend
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    email: darioblanca.lp@gmail.com  # <-- Ajustar si se usa otro email
+    privateKeySecretRef:
+      name: letsencrypt-prod
+    solvers:
+      - http01:
+          ingress:
+            ingressClassName: pomerium
+
+---
+# --- Backend: Ingress (acceso público) --------------------------------------
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: backend
+  namespace: osfatun-backend
+  annotations:
+    cert-manager.io/issuer: letsencrypt-prod
+    ingress.pomerium.io/allow_public_unauthenticated_access: "true"
+    # Para requerir autenticación via Pomerium, reemplazar la línea anterior por:
+    # ingress.pomerium.io/policy: '[{"allow":{"and":[{"email":{"is":"usuario@dominio.com"}}]}}]'
+spec:
+  ingressClassName: pomerium
+  tls:
+    - hosts:
+        - api.osfatun.ticksar.com.ar  # <-- Ajustar al dominio real
+      secretName: backend-tls
+  rules:
+    - host: api.osfatun.ticksar.com.ar  # <-- Ajustar al dominio real
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: backend
+                port:
+                  number: 8000

@@ -1,0 +1,25 @@
+# =============================================================================
+# Pomerium - Patch para fijar al nodo control-plane
+# =============================================================================
+# Aplicar DESPUES de instalar el operador de Pomerium:
+#
+#   kubectl patch deployment pomerium -n pomerium --patch-file pomerium-node-patch.yaml
+#
+# Si el operador crea otros deployments (ej: pomerium-ingress-controller),
+# aplicar el mismo patch a cada uno:
+#
+#   kubectl get deployments -n pomerium
+#   kubectl patch deployment <NOMBRE> -n pomerium --patch-file pomerium-node-patch.yaml
+# =============================================================================
+spec:
+  template:
+    spec:
+      nodeSelector:
+        node-role.kubernetes.io/control-plane: "true"
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+        - key: node-role.kubernetes.io/master
+          operator: Exists
+          effect: NoSchedule

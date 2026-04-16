@@ -1,0 +1,12 @@
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: pomerium-proxy-tls
+  namespace: pomerium
+spec:
+  dnsNames:
+  - 'authenticate.osfatun.com.ar'
+  issuerRef:
+    kind: Issuer
+    name: letsencrypt-prod
+  secretName: pomerium-proxy-tls

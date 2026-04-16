@@ -1,0 +1,14 @@
+authenticate_service_url: https://authenticate.osfatun.ticksar.com.ar
+
+idp_provider: oidc
+idp_client_id: 'pomerium'
+idp_client_secret: 'GwM4zDdS2WTafKhO2KQEHhTVZh8Nx3EZ' # Replace with the actual secret
+idp_provider_url: 'http://auth.osfatun.ticksar.com.ar:8080/realms/pomerium'
+
+signing_key: LS0tLS1CRUdJTiBFQyBQUklWQVRFIEtFWS0tLS0tCk1IY0NBUUVFSVA2TUN5UFI5OUNmSEVkU0s4cVdzbk51Q0RyMVZ3ay93RER1RVhyQitELzZvQW9HQ0NxR1NNNDkKQXdFSG9VUURRZ0FFQ0JTK3gyQnJRNVJqNHJFcU5PSEVsUFVESXJiRlNhRitoWEhEL1RYby9rQWVKU1lJSjJHVwpZMnE0a0NPNTU4RmdoYmxDTUplYVdjV1luT3JuZkpxeXRnPT0KLS0tLS1FTkQgRUMgUFJJVkFURSBLRVktLS0tLQo=
+
+routes:
+  - from: https://verify.localhost.pomerium.io
+    to: http://verify:8000
+    allow_any_authenticated_user: true
+    pass_identity_headers: true
