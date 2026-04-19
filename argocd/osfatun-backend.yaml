@@ -1,0 +1,52 @@
+# =============================================================================
+# ArgoCD Application — OSFATUN Backend
+# =============================================================================
+# Este recurso le indica a ArgoCD dónde encontrar el Helm chart y con qué
+# valores desplegarlo. ArgoCD se encarga de sincronizar automáticamente
+# el estado del cluster con lo definido aquí.
+#
+# Antes de aplicar:
+#   1. ArgoCD debe estar instalado en el cluster (namespace argocd)
+#   2. El repositorio Git debe ser accesible por ArgoCD
+#   3. Ajustar repoURL y targetRevision según corresponda
+# =============================================================================
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: osfatun-backend
+  namespace: argocd
+spec:
+  project: default
+
+  source:
+    # URL del repositorio Git que contiene el chart
+    repoURL: CHANGE_ME_GIT_REPO_URL  # <-- Ej: https://gitlab.com/org/osfatun-infra.git
+    targetRevision: HEAD
+    path: kubernetes/charts/osfatun-backend
+
+    helm:
+      # Valores que sobreescriben values.yaml.
+      # Los secrets sensibles se definen aquí (no van en Git).
+      # ArgoCD los almacena cifrados en su propio namespace.
+      parameters:
+        - name: image.repository
+          value: CHANGE_ME_REGISTRY/osfatun-backend
+        - name: image.tag
+          value: latest
+        - name: db.password
+          value: CHANGE_ME_DB_APP_PASSWORD
+        - name: django.secretKey
+          value: CHANGE_ME_DJANGO_SECRET_KEY
+        - name: imagePullSecret.dockerconfigjson
+          value: CHANGE_ME_BASE64_DOCKER_CONFIG
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: osfatun-backend
+
+  syncPolicy:
+    automated:
+      prune: true      # Eliminar recursos que ya no están en Git
+      selfHeal: true   # Reconciliar si alguien cambia algo manualmente en el cluster
+    syncOptions:
+      - CreateNamespace=true

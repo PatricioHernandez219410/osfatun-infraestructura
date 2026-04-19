@@ -35,7 +35,7 @@ metadata:
   namespace: osfatun-backend
 type: kubernetes.io/dockerconfigjson
 data:
-  .dockerconfigjson: ${DOCKER_CONFIG_BASE64}
+  .dockerconfigjson: CHANGE_ME_BASE64_DOCKER_CONFIG  # <-- Ver instrucciones arriba
 
 ---
 # --- Credenciales DB (replica del secret en namespace database) --------------
@@ -49,7 +49,7 @@ metadata:
 type: Opaque
 stringData:
   POSTGRES_USER: app
-  POSTGRES_PASSWORD: ${DB_APP_PASSWORD}
+  POSTGRES_PASSWORD: CHANGE_ME_DB_APP_PASSWORD  # <-- Debe coincidir con cloudnativepg.yaml
 
 ---
 # --- Configuración de la aplicación -----------------------------------------
@@ -64,7 +64,7 @@ type: Opaque
 stringData:
   # -- Django Core --
   DEBUG: "False"
-  SECRET_KEY: ${DJANGO_SECRET_KEY}
+  SECRET_KEY: CHANGE_ME_DJANGO_SECRET_KEY  # <-- Generar con: python -c "from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())"
   ENV_STAGE: "PRODUCTION"
   DJANGO_SETTINGS_MODULE: "config.settings.production"
 
@@ -102,32 +102,32 @@ stringData:
   EMAIL_HOST: "smtp.gmail.com"
   EMAIL_PORT: "587"
   EMAIL_USE_TLS: "True"
-  EMAIL_HOST_USER: "${EMAIL_HOST_USER}"
-  EMAIL_HOST_PASSWORD: "${EMAIL_HOST_PASSWORD}"
-  DEFAULT_FROM_EMAIL: "${DEFAULT_FROM_EMAIL}"
+  EMAIL_HOST_USER: "CHANGE_ME_EMAIL"
+  EMAIL_HOST_PASSWORD: "CHANGE_ME_EMAIL_PASSWORD"
+  DEFAULT_FROM_EMAIL: "CHANGE_ME_FROM_EMAIL"
 
   # -- Sentry --
-  SENTRY_DSN: "${SENTRY_DSN}"
+  SENTRY_DSN: "CHANGE_ME_SENTRY_DSN"
   SENTRY_TRACES_SAMPLE_RATE: "0.1"
 
   # -- WhatsApp Business API --
   WHATSAPP_API_URL: "https://graph.facebook.com/v21.0"
-  WHATSAPP_API_TOKEN: "${WHATSAPP_API_TOKEN}"
-  WHATSAPP_PHONE_NUMBER_ID: "${WHATSAPP_PHONE_NUMBER_ID}"
+  WHATSAPP_API_TOKEN: "CHANGE_ME_WHATSAPP_TOKEN"
+  WHATSAPP_PHONE_NUMBER_ID: "CHANGE_ME_WHATSAPP_PHONE_ID"
 
   # -- Sistema externo para sincronización --
-  EXTERNAL_SYSTEM_API_URL: "${EXTERNAL_SYSTEM_API_URL}"
-  EXTERNAL_SYSTEM_API_KEY: "${EXTERNAL_SYSTEM_API_KEY}"
-  EXTERNAL_SYSTEM_USERNAME: "${EXTERNAL_SYSTEM_USERNAME}"
-  EXTERNAL_SYSTEM_PASSWORD: "${EXTERNAL_SYSTEM_PASSWORD}"
+  EXTERNAL_SYSTEM_API_URL: "CHANGE_ME_EXTERNAL_API_URL"
+  EXTERNAL_SYSTEM_API_KEY: "CHANGE_ME_EXTERNAL_API_KEY"
+  EXTERNAL_SYSTEM_USERNAME: "CHANGE_ME_EXTERNAL_USERNAME"
+  EXTERNAL_SYSTEM_PASSWORD: "CHANGE_ME_EXTERNAL_PASSWORD"
 
   # -- Sincronización --
   SYNC_FREQUENCY_MINUTES: "30"
   SYNC_ENABLED: "True"
 
   # -- Webhooks --
-  WEBHOOK_API_URL: "${WEBHOOK_API_URL}"
-  WEBHOOK_API_TOKEN: "${WEBHOOK_API_TOKEN}"
+  WEBHOOK_API_URL: "CHANGE_ME_WEBHOOK_URL"
+  WEBHOOK_API_TOKEN: "CHANGE_ME_WEBHOOK_TOKEN"
 
   # -- Logging --
   LOG_LEVEL: "INFO"
@@ -244,7 +244,7 @@ spec:
         - name: gitlab-registry
       containers:
         - name: backend
-          image: ${BACKEND_IMAGE}
+          image: CHANGE_ME_REGISTRY/osfatun-backend:latest  # <-- Ej: registry.gitlab.com/org/osfatun-backend:v1.0.0
           ports:
             - name: http
               containerPort: 8000
@@ -322,7 +322,7 @@ spec:
         - name: gitlab-registry
       containers:
         - name: celery-worker
-          image: ${BACKEND_IMAGE}
+          image: CHANGE_ME_REGISTRY/osfatun-backend:latest  # <-- Misma imagen que el backend
           command: ["celery", "-A", "config", "worker", "-l", "INFO", "--concurrency=4"]
           envFrom:
             - secretRef:
@@ -369,7 +369,7 @@ spec:
         - name: gitlab-registry
       containers:
         - name: celery-beat
-          image: ${BACKEND_IMAGE}
+          image: CHANGE_ME_REGISTRY/osfatun-backend:latest  # <-- Misma imagen que el backend
           command:
             - celery
             - -A

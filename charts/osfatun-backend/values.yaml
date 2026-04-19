@@ -1,0 +1,157 @@
+# =============================================================================
+# OSFATUN Backend — Helm Values
+# =============================================================================
+# Valores por defecto del chart. Para producción, sobreescribir los valores
+# CHANGE_ME_* usando ArgoCD (parameter overrides) o un archivo
+# values-production.yaml separado (NO commitear al repo).
+#
+# Prerequisito: crear la base de datos 'osfatun' en PostgreSQL:
+#   kubectl exec -it -n database main-db-1 -- psql -U postgres -c "CREATE DATABASE osfatun OWNER app;"
+# =============================================================================
+
+# -- Imagen del backend -------------------------------------------------------
+image:
+  repository: CHANGE_ME_REGISTRY/osfatun-backend
+  tag: latest
+  pullPolicy: Always
+
+imagePullSecret:
+  # Contenido de ~/.docker/config.json en base64.
+  # Generar con:
+  #   kubectl create secret docker-registry tmp \
+  #     --docker-server=registry.gitlab.com \
+  #     --docker-username=<USUARIO> \
+  #     --docker-password=<TOKEN> \
+  #     --dry-run=client -o jsonpath='{.data.\.dockerconfigjson}'
+  dockerconfigjson: CHANGE_ME_BASE64_DOCKER_CONFIG
+
+# -- Base de datos (CloudNativePG) --------------------------------------------
+# El password DEBE coincidir con main-db-app-credentials de cloudnativepg.yaml.
+db:
+  user: app
+  password: CHANGE_ME_DB_APP_PASSWORD
+  host: main-db-rw.database.svc.cluster.local
+  port: "5432"
+  name: osfatun
+  connMaxAge: "60"
+
+# -- Redis (desplegado dentro del chart) --------------------------------------
+redis:
+  image: redis:7-alpine
+  maxmemory: 256mb
+  resources:
+    requests:
+      memory: 64Mi
+      cpu: 50m
+    limits:
+      memory: 256Mi
+      cpu: 250m
+
+# -- Django -------------------------------------------------------------------
+django:
+  secretKey: CHANGE_ME_DJANGO_SECRET_KEY
+  debug: "False"
+  settingsModule: config.settings.production
+  envStage: PRODUCTION
+  logLevel: INFO
+  sslRedirect: "False"  # TLS lo termina Pomerium, no Django
+
+# -- Gunicorn -----------------------------------------------------------------
+gunicorn:
+  workers: "4"
+  threads: "2"
+  timeout: "120"
+  maxRequests: "1000"
+  maxRequestsJitter: "50"
+
+# -- Backend (Deployment) ----------------------------------------------------
+backend:
+  replicas: 1
+  resources:
+    requests:
+      memory: 512Mi
+      cpu: 250m
+    limits:
+      memory: 1Gi
+      cpu: 1000m
+
+# -- Celery Worker ------------------------------------------------------------
+celeryWorker:
+  replicas: 1
+  concurrency: 4
+  resources:
+    requests:
+      memory: 256Mi
+      cpu: 100m
+    limits:
+      memory: 512Mi
+      cpu: 500m
+
+# -- Celery Beat (SIEMPRE 1 réplica — no escalar) ----------------------------
+celeryBeat:
+  resources:
+    requests:
+      memory: 128Mi
+      cpu: 50m
+    limits:
+      memory: 256Mi
+      cpu: 250m
+
+# -- Media (PVC) --------------------------------------------------------------
+media:
+  storageClass: local-path
+  size: 5Gi
+
+# -- Ingress ------------------------------------------------------------------
+ingress:
+  host: api.osfatun.ticksar.com.ar
+  className: pomerium
+  tls: true
+  publicAccess: true
+
+# -- cert-manager -------------------------------------------------------------
+certManager:
+  issuerEmail: darioblanca.lp@gmail.com
+
+# -- Seguridad y CORS --------------------------------------------------------
+cors:
+  allowAll: "False"
+  whitelist: "https://api.osfatun.ticksar.com.ar"
+  trustedOrigins: "https://api.osfatun.ticksar.com.ar"
+
+# -- Email (SMTP) ------------------------------------------------------------
+email:
+  host: smtp.gmail.com
+  port: "587"
+  useTls: "True"
+  user: CHANGE_ME_EMAIL
+  password: CHANGE_ME_EMAIL_PASSWORD
+  defaultFrom: CHANGE_ME_FROM_EMAIL
+
+# -- Sentry ------------------------------------------------------------------
+sentry:
+  dsn: CHANGE_ME_SENTRY_DSN
+  tracesSampleRate: "0.1"
+
+# -- WhatsApp Business API ----------------------------------------------------
+whatsapp:
+  apiUrl: "https://graph.facebook.com/v21.0"
+  apiToken: CHANGE_ME_WHATSAPP_TOKEN
+  phoneNumberId: CHANGE_ME_WHATSAPP_PHONE_ID
+
+# -- Sistema externo (sincronización) ----------------------------------------
+externalSystem:
+  apiUrl: CHANGE_ME_EXTERNAL_API_URL
+  apiKey: CHANGE_ME_EXTERNAL_API_KEY
+  username: CHANGE_ME_EXTERNAL_USERNAME
+  password: CHANGE_ME_EXTERNAL_PASSWORD
+
+# -- Sincronización -----------------------------------------------------------
+sync:
+  frequencyMinutes: "30"
+  enabled: "True"
+
+# -- Webhooks -----------------------------------------------------------------
+webhook:
+  apiUrl: CHANGE_ME_WEBHOOK_URL
+  apiToken: CHANGE_ME_WEBHOOK_TOKEN

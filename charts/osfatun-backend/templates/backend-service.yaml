@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "osfatun-backend.labels" . | nindent 4 }}
+spec:
+  selector:
+    app: osfatun-backend
+  ports:
+    - name: http
+      port: 8000
+      targetPort: 8000

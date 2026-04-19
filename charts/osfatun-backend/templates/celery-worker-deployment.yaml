@@ -1,0 +1,39 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: celery-worker
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "osfatun-backend.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.celeryWorker.replicas }}
+  selector:
+    matchLabels:
+      app: osfatun-celery-worker
+  template:
+    metadata:
+      labels:
+        app: osfatun-celery-worker
+        {{- include "osfatun-backend.labels" . | nindent 8 }}
+    spec:
+      imagePullSecrets:
+        - name: gitlab-registry
+      containers:
+        - name: celery-worker
+          image: {{ include "osfatun-backend.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["celery", "-A", "config", "worker", "-l", "INFO", "--concurrency={{ .Values.celeryWorker.concurrency }}"]
+          envFrom:
+            - secretRef:
+                name: backend-config
+            - secretRef:
+                name: backend-db-credentials
+          resources:
+            {{- toYaml .Values.celeryWorker.resources | nindent 12 }}
+          volumeMounts:
+            - name: media
+              mountPath: /src/media
+      volumes:
+        - name: media
+          persistentVolumeClaim:
+            claimName: backend-media

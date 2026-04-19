@@ -1,0 +1,44 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: celery-beat
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "osfatun-backend.labels" . | nindent 4 }}
+spec:
+  # IMPORTANTE: Celery Beat SIEMPRE debe tener exactamente 1 réplica.
+  # Múltiples instancias duplicarían las tareas programadas.
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: osfatun-celery-beat
+  template:
+    metadata:
+      labels:
+        app: osfatun-celery-beat
+        {{- include "osfatun-backend.labels" . | nindent 8 }}
+    spec:
+      imagePullSecrets:
+        - name: gitlab-registry
+      containers:
+        - name: celery-beat
+          image: {{ include "osfatun-backend.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command:
+            - celery
+            - -A
+            - config
+            - beat
+            - -l
+            - INFO
+            - --scheduler
+            - django_celery_beat.schedulers:DatabaseScheduler
+          envFrom:
+            - secretRef:
+                name: backend-config
+            - secretRef:
+                name: backend-db-credentials
+          resources:
+            {{- toYaml .Values.celeryBeat.resources | nindent 12 }}

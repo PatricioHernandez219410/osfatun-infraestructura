@@ -1,0 +1,6 @@
+apiVersion: v2
+name: osfatun-backend
+description: Backend Django (API REST) para OSFATUN — Gunicorn, Celery Worker/Beat, Redis
+type: application
+version: 0.1.0
+appVersion: "1.0.0"

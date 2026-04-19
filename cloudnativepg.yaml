@@ -27,7 +27,7 @@ metadata:
 type: kubernetes.io/basic-auth
 stringData:
   username: app
-  password: ${DB_APP_PASSWORD}
+  password: CHANGE_ME_DB_APP_PASSWORD  # <-- Cambiar antes de aplicar
 
 ---
 # --- Credenciales del superusuario -------------------------------------------
@@ -39,7 +39,7 @@ metadata:
 type: kubernetes.io/basic-auth
 stringData:
   username: postgres
-  password: ${DB_SUPERUSER_PASSWORD}
+  password: CHANGE_ME_DB_SUPERUSER_PASSWORD  # <-- Cambiar antes de aplicar
 
 ---
 # --- CloudNativePG: Cluster --------------------------------------------------
