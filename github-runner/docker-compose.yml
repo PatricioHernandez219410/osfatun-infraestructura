@@ -1,0 +1,41 @@
+# =============================================================================
+# Docker Compose - GitHub Actions Self-Hosted Runner
+# =============================================================================
+# Este runner se conecta a GitHub y ejecuta workflows de CI/CD.
+# Tiene acceso al Docker del host para poder construir imágenes.
+# =============================================================================
+
+services:
+  github-runner:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        RUNNER_VERSION: "2.314.1"
+    container_name: osfatun_github_runner
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - RUNNER_NAME=${RUNNER_NAME:-osfatun-runner}
+      - RUNNER_LABELS=${RUNNER_LABELS:-docker,linux,self-hosted,osfatun}
+      - GITHUB_URL=${GITHUB_URL}
+      - GITHUB_TOKEN=${GITHUB_TOKEN}
+    volumes:
+      # Montar Docker socket para poder ejecutar docker desde el runner
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Persistir workspace entre reinicios
+      - runner_work:/home/runner/actions-runner/_work
+    # Agregar al grupo docker del host
+    group_add:
+      - ${DOCKER_GID:-999}
+    networks:
+      - osfatun_infra_network
+
+volumes:
+  runner_work:
+    driver: local
+
+networks:
+  osfatun_infra_network:
+    external: true
