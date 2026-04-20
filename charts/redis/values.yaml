@@ -1,0 +1,24 @@
+# =============================================================================
+# Redis compartido — Helm Values
+# =============================================================================
+# Instancia única de Redis utilizada por todos los entornos del backend.
+# Cada entorno usa un DB number distinto (0, 1, 2, ...) para aislar datos.
+# =============================================================================
+
+image: redis:7-alpine
+
+maxmemory: 512mb
+maxmemoryPolicy: allkeys-lru
+
+persistence:
+  enabled: true
+  storageClass: local-path
+  size: 2Gi
+
+resources:
+  requests:
+    memory: 128Mi
+    cpu: 100m
+  limits:
+    memory: 512Mi
+    cpu: 500m

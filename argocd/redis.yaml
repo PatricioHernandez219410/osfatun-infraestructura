@@ -1,0 +1,30 @@
+# =============================================================================
+# ArgoCD Application — Redis (servicio compartido)
+# =============================================================================
+# Redis desplegado como servicio compartido en su propio namespace.
+# Todos los entornos del backend (prod, qa, dev) se conectan a esta
+# instancia usando distintos DB numbers para aislar datos.
+# =============================================================================
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: redis
+  namespace: argocd
+spec:
+  project: default
+
+  source:
+    repoURL: CHANGE_ME_GIT_REPO_URL  # <-- Ej: https://github.com/org/osfatun-infra.git
+    targetRevision: HEAD
+    path: kubernetes/charts/redis
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: redis
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

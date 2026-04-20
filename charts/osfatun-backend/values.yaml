@@ -1,12 +1,17 @@
 # =============================================================================
 # OSFATUN Backend — Helm Values
 # =============================================================================
-# Valores por defecto del chart. Para producción, sobreescribir los valores
-# CHANGE_ME_* usando ArgoCD (parameter overrides) o un archivo
-# values-production.yaml separado (NO commitear al repo).
+# Valores por defecto del chart (entorno producción).
+# Para otros entornos, sobreescribir con ArgoCD parameter overrides o un
+# archivo values-<entorno>.yaml.
 #
-# Prerequisito: crear la base de datos 'osfatun' en PostgreSQL:
-#   kubectl exec -it -n database main-db-1 -- psql -U postgres -c "CREATE DATABASE osfatun OWNER app;"
+# Prerequisito: crear la base de datos en PostgreSQL:
+#   kubectl exec -it -n database main-db-1 -- psql -U postgres \
+#     -c "CREATE DATABASE <nombre_db> OWNER app;"
+#
+# Multi-entorno: cada entorno se despliega en su propio namespace con
+# distinta DB y distinto Redis DB number. Redis es un servicio compartido
+# desplegado en el namespace "redis" (ver charts/redis/).
 # =============================================================================
 
 # -- Imagen del backend -------------------------------------------------------
@@ -19,7 +24,7 @@ imagePullSecret:
   # Contenido de ~/.docker/config.json en base64.
   # Generar con:
   #   kubectl create secret docker-registry tmp \
-  #     --docker-server=registry.gitlab.com \
+  #     --docker-server=ghcr.io \
   #     --docker-username=<USUARIO> \
   #     --docker-password=<TOKEN> \
   #     --dry-run=client -o jsonpath='{.data.\.dockerconfigjson}'
@@ -35,17 +40,13 @@ db:
   name: osfatun
   connMaxAge: "60"
 
-# -- Redis (desplegado dentro del chart) --------------------------------------
+# -- Redis (servicio compartido en namespace "redis") -------------------------
+# Cada entorno usa un DB number distinto para aislar datos.
+# prod=0, qa=1, dev=2, etc.
 redis:
-  image: redis:7-alpine
-  maxmemory: 256mb
-  resources:
-    requests:
-      memory: 64Mi
-      cpu: 50m
-    limits:
-      memory: 256Mi
-      cpu: 250m
+  host: redis.redis.svc.cluster.local
+  port: "6379"
+  db: "0"
 
 # -- Django -------------------------------------------------------------------
 django:

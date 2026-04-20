@@ -23,7 +23,8 @@ Documentación de respaldo para el cluster K3s de producción de OSFATUN.
 | **CloudNativePG** | Operador para gestionar PostgreSQL como recurso nativo de Kubernetes | Operador: `cnpg-system` / Cluster: `database` |
 | **Pomerium** | Ingress controller con autenticación integrada (reemplaza a Traefik) | `pomerium` |
 | **Keycloak** | Proveedor de identidad (IdP) OIDC, integrado con Pomerium | `keycloak` |
-| **OSFATUN Backend** | API REST Django (Gunicorn) + Celery Worker/Beat + Redis | `osfatun-backend` |
+| **Redis** | Broker Celery y caché — servicio compartido por todos los entornos | `redis` |
+| **OSFATUN Backend** | API REST Django (Gunicorn) + Celery Worker/Beat. Un namespace por entorno (`osfatun-prod`, `osfatun-qa`, etc.) | `osfatun-*` |
 | **ArgoCD** | GitOps / Continuous Delivery — sincroniza el cluster desde Git | `argocd` |
 
 ### Dominios
@@ -32,7 +33,7 @@ Documentación de respaldo para el cluster K3s de producción de OSFATUN.
 |---------|----------|
 | `authenticate.prueba.ticksar.com.ar` | Pomerium — endpoint de autenticación |
 | `auth.osfatun.ticksar.com.ar` | Keycloak — consola de administración y OIDC |
-| `api.osfatun.ticksar.com.ar` | OSFATUN Backend — API REST Django |
+| `api.osfatun.ticksar.com.ar` | OSFATUN Backend — API REST Django (producción) |
 | `argo.osfatun.ticksar.com.ar` | ArgoCD — UI de gestión GitOps (acceso restringido a grupo `admin`) |
 
 ### Diagrama de dependencias
@@ -72,17 +73,19 @@ Documentación de respaldo para el cluster K3s de producción de OSFATUN.
 | `cloudnativepg.yaml` | Namespace `database`, secrets de credenciales, Cluster CloudNativePG (PostgreSQL 16). Fijado al nodo con label `node-role=database`. |
 | `keycloak.yaml` | Namespace `keycloak`, secret de credenciales DB (réplica), secret admin Keycloak, Deployment, Service, Issuer cert-manager, Ingress. Fijado al nodo control-plane. |
 | `issuer.yaml` | Issuer ACME Let's Encrypt producción en namespace `pomerium`. |
-| `certificate.yaml` | Certificate para `authenticate.prueba.ticksar.com.ar` (namespace `pomerium`). |
+| `certificate.yaml` | Certificate standalone para `authenticate.prueba.ticksar.com.ar` (namespace `pomerium`). **Ya no es necesario**: `pomerium.yaml` delega la emisión a cert-manager via Ingress. Conservado como referencia. |
 | `ingressclass.yaml` | IngressClass `pomerium` como default del cluster. |
-| `pomerium.yaml` | CRD Pomerium — configuración global con Keycloak como IdP OIDC. |
+| `pomerium.yaml` | CRD Pomerium — configuración global con Keycloak como IdP OIDC. Incluye `spec.authenticate.ingress` para que cert-manager emita el certificado del endpoint authenticate via HTTP-01. |
 | `pomerium-proxy.yaml` | Service `pomerium-proxy` con annotation de external-dns. |
 | `pomerium-node-patch.yaml` | Patch para fijar los deployments de Pomerium al nodo control-plane (aplicar post-instalación del operador). |
 | `secret_keycloak.yaml` | Secret `idp` en namespace `pomerium` con credenciales del client OIDC `pomerium` configurado en Keycloak. |
 | `config.yaml` | Configuración legacy de Pomerium (file-based). No se utiliza con el enfoque actual basado en CRD. |
 | `osfatun-backend.yaml` | Manifiesto plano original del backend. **Reemplazado por el Helm chart** en `charts/osfatun-backend/`. Conservado como referencia. |
-| `charts/osfatun-backend/` | Helm chart del backend Django: templates K8s + `values.yaml` con toda la configuración parametrizada. |
+| `charts/osfatun-backend/` | Helm chart del backend Django + Celery. Parametrizado para multi-entorno (DB, Redis DB, dominio). |
+| `charts/redis/` | Helm chart de Redis compartido. Instancia única usada por todos los entornos (cada uno usa un DB number distinto). |
 | `argocd-ingress.yaml` | ConfigMap insecure + Issuer cert-manager + Ingress para exponer la UI de ArgoCD via Pomerium (restringido a grupo `admin`). |
-| `argocd/osfatun-backend.yaml` | Application CRD de ArgoCD que apunta al Helm chart y define los value overrides para producción. |
+| `argocd/redis.yaml` | Application CRD de ArgoCD para desplegar Redis compartido en namespace `redis`. |
+| `argocd/osfatun-backend.yaml` | Application CRD de ArgoCD para el backend producción (`osfatun-prod`). Duplicar para otros entornos. |
 | `capa1.yaml` | Servicio de ejemplo (whoami). No forma parte del despliegue de producción. |
 | `capa2.yaml` | Servicio de ejemplo (uptime-kuma). No forma parte del despliegue de producción. |
 
@@ -154,13 +157,15 @@ kubectl apply -f secret_keycloak.yaml
 kubectl apply -f pomerium.yaml
 ```
 
-### Paso 4 — Infraestructura base (IngressClass, Issuer, Certificate)
+### Paso 4 — Infraestructura base (IngressClass, Issuer)
 
 ```bash
 kubectl apply -f ingressclass.yaml
 kubectl apply -f issuer.yaml
-kubectl apply -f certificate.yaml
 kubectl apply -f pomerium-proxy.yaml
+# certificate.yaml NO se aplica: cert-manager emite el certificado
+# automáticamente a partir del Ingress que crea pomerium.yaml
+# (ver spec.authenticate.ingress).
 ```
 
 ### Paso 5 — Keycloak
@@ -250,26 +255,45 @@ kubectl get ingress -n argocd           # Ingress activo
 
 Acceder a `https://argo.osfatun.ticksar.com.ar` — debe redirigir a Keycloak y solo permitir el acceso a usuarios del grupo `admin`.
 
-### Paso 9 — OSFATUN Backend (Helm + ArgoCD)
+### Paso 9 — Redis compartido
+
+```bash
+# Editar argocd/redis.yaml: configurar repoURL
+kubectl apply -f argocd/redis.yaml
+```
+
+ArgoCD despliega Redis en el namespace `redis`. Todos los entornos del backend se conectan a esta instancia usando distintos DB numbers (`0`=prod, `1`=qa, `2`=dev, etc.).
+
+### Paso 10 — OSFATUN Backend (Helm + ArgoCD)
 
 Ver guía detallada en `documentacion/osfatun-backend.md` y `documentacion/helm-argocd.md`.
 
+**10.1 — Crear la base de datos:**
+
 ```bash
-# Crear la base de datos 'osfatun' en PostgreSQL
 kubectl exec -it -n database main-db-1 -- psql -U postgres -c "CREATE DATABASE osfatun OWNER app;"
-
-# Editar argocd/osfatun-backend.yaml: configurar repoURL y parameters (secrets)
-# Registrar el repo en ArgoCD si es privado:
-#   argocd repo add <REPO_URL> --username <USER> --password <TOKEN>
-
-# Desplegar via ArgoCD
-kubectl apply -f argocd/osfatun-backend.yaml
-
-# O desplegar manualmente con Helm (sin ArgoCD):
-# helm install osfatun-backend charts/osfatun-backend \
-#   --namespace osfatun-backend --create-namespace \
-#   --set db.password=<PASSWORD> --set django.secretKey=<KEY> ...
 ```
+
+**10.2 — Registrar el repo en ArgoCD (si es privado):**
+
+```bash
+argocd repo add <REPO_URL> --username <USER> --password <TOKEN>
+```
+
+**10.3 — Desplegar producción:**
+
+```bash
+# Editar argocd/osfatun-backend.yaml: configurar repoURL y parameters (secrets)
+kubectl apply -f argocd/osfatun-backend.yaml
+```
+
+**10.4 — Agregar otro entorno (ejemplo: QA):**
+
+1. Crear base de datos: `CREATE DATABASE osfatun_qa OWNER app;`
+2. Crear DNS para `api-qa.osfatun.ticksar.com.ar`
+3. Duplicar `argocd/osfatun-backend.yaml` → `argocd/osfatun-backend-qa.yaml`
+4. Cambiar: `name` → `osfatun-backend-qa`, `namespace` → `osfatun-qa`, `db.name` → `osfatun_qa`, `redis.db` → `"1"`, `ingress.host` → `api-qa.osfatun.ticksar.com.ar`
+5. `kubectl apply -f argocd/osfatun-backend-qa.yaml`
 
 ---
 
@@ -281,7 +305,8 @@ kubectl apply -f argocd/osfatun-backend.yaml
 - **`CHANGE_ME_DB_SUPERUSER_PASSWORD`** en `cloudnativepg.yaml` — password del superusuario `postgres`.
 - **`CHANGE_ME_KEYCLOAK_PASSWORD`** en `keycloak.yaml` — password del admin de Keycloak.
 - **`client_secret`** en `secret_keycloak.yaml` — se obtiene de Keycloak después de crear el client OIDC.
-- **Secrets del backend** se configuran en `charts/osfatun-backend/values.yaml` o como parameter overrides en `argocd/osfatun-backend.yaml`. Ver `documentacion/helm-argocd.md` para detalles.
+- **Secrets del backend** se configuran como parameter overrides en `argocd/osfatun-backend.yaml` (uno por entorno). Ver `documentacion/helm-argocd.md` para detalles.
+- **Redis** no requiere credenciales (sin autenticación, accesible solo desde dentro del cluster).
 
 ### Verificación del estado
 

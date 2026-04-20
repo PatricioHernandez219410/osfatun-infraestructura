@@ -53,7 +53,18 @@ kubectl port-forward svc/argocd-server -n argocd 8080:443
 # Abrir https://localhost:8080 (usuario: admin, password: el obtenido arriba)
 ```
 
-Para exponer ArgoCD con un Ingress via Pomerium (como Keycloak), crear un Ingress en el namespace `argocd` siguiendo el patrón de `keycloak.yaml`.
+Para exponer ArgoCD via Pomerium, aplicar el manifiesto `argocd-ingress.yaml` que configura:
+
+1. **ConfigMap `argocd-cmd-params-cm`** — pone ArgoCD en modo HTTP interno (`server.insecure: true`), ya que TLS lo termina Pomerium.
+2. **Issuer `letsencrypt-prod`** — emisión automática de certificados en el namespace `argocd`.
+3. **Ingress** — expone la UI en `argo.osfatun.ticksar.com.ar` con acceso restringido al grupo `admin` de Keycloak.
+
+```bash
+kubectl apply -f argocd-ingress.yaml
+kubectl rollout restart deployment/argocd-server -n argocd
+```
+
+El restart es necesario para que ArgoCD tome el cambio del ConfigMap. Ver `README.md` Paso 8 para el procedimiento completo (DNS, verificación, etc.).
 
 ## Instalación de Helm (solo CLI)
 

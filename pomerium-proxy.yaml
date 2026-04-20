@@ -3,4 +3,4 @@ kind: Service
 metadata:
   name: pomerium-proxy
   annotations:
-    external-dns.alpha.kubernetes.io/hostname: 'authenticate.osfatun.com.ar'
+    external-dns.alpha.kubernetes.io/hostname: 'authenticate.prueba.ticksar.com.ar'

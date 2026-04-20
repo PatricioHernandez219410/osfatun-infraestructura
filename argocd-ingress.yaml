@@ -62,7 +62,7 @@ metadata:
   namespace: argocd
   annotations:
     cert-manager.io/issuer: letsencrypt-prod
-    ingress.pomerium.io/policy: '[{"allow":{"and":[{"groups":{"has":"admin"}}]}}]'
+    ingress.pomerium.io/policy: '[{"allow":{"and":[{"claim/groups":"ticksar"}]}}]'
 spec:
   ingressClassName: pomerium
   tls:

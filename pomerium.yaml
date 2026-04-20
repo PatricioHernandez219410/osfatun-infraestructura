@@ -6,6 +6,11 @@ spec:
   secrets: pomerium/bootstrap
   authenticate:
       url: https://authenticate.prueba.ticksar.com.ar
+      ingress:
+        annotations:
+          cert-manager.io/issuer: letsencrypt-prod
+        tls:
+          secretName: pomerium-proxy-tls
   identityProvider:
       provider: oidc
       secret: pomerium/idp

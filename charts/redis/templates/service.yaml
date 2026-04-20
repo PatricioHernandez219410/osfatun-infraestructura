@@ -4,10 +4,10 @@ metadata:
   name: redis
   namespace: {{ .Release.Namespace }}
   labels:
-    {{- include "osfatun-backend.labels" . | nindent 4 }}
+    {{- include "redis.labels" . | nindent 4 }}
 spec:
   selector:
-    app: osfatun-redis
+    app: redis
   ports:
     - port: 6379
       targetPort: 6379

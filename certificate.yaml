@@ -1,3 +1,15 @@
+# =============================================================================
+# NOTA: Este Certificate standalone YA NO ES NECESARIO cuando se utiliza
+# spec.authenticate.ingress en pomerium.yaml con la anotación de cert-manager.
+# cert-manager crea automáticamente un Certificate a partir del Ingress.
+#
+# Antes de aplicar el nuevo pomerium.yaml, eliminar el Certificate y Secret
+# antiguos del cluster:
+#   kubectl delete certificate pomerium-proxy-tls -n pomerium
+#   kubectl delete secret pomerium-proxy-tls -n pomerium
+#
+# Conservado como referencia. NO aplicar junto con el nuevo pomerium.yaml.
+# =============================================================================
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
@@ -5,7 +17,7 @@ metadata:
   namespace: pomerium
 spec:
   dnsNames:
-  - 'authenticate.osfatun.com.ar'
+  - 'authenticate.prueba.ticksar.com.ar'
   issuerRef:
     kind: Issuer
     name: letsencrypt-prod

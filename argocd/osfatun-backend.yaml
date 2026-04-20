@@ -1,52 +1,65 @@
 # =============================================================================
-# ArgoCD Application — OSFATUN Backend
+# ArgoCD Application — OSFATUN Backend (Producción)
 # =============================================================================
-# Este recurso le indica a ArgoCD dónde encontrar el Helm chart y con qué
-# valores desplegarlo. ArgoCD se encarga de sincronizar automáticamente
-# el estado del cluster con lo definido aquí.
+# Despliega el backend Django en el namespace osfatun-prod.
+# Para crear otro entorno (qa, dev), duplicar este archivo cambiando:
+#   - metadata.name
+#   - destination.namespace
+#   - parameters: db.name, redis.db, ingress.host, django.envStage, etc.
 #
 # Antes de aplicar:
-#   1. ArgoCD debe estar instalado en el cluster (namespace argocd)
-#   2. El repositorio Git debe ser accesible por ArgoCD
-#   3. Ajustar repoURL y targetRevision según corresponda
+#   1. ArgoCD instalado y el repo registrado
+#   2. Redis compartido desplegado (argocd/redis.yaml)
+#   3. Base de datos creada en PostgreSQL
 # =============================================================================
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: osfatun-backend
+  name: osfatun-backend-prod
   namespace: argocd
 spec:
   project: default
 
   source:
-    # URL del repositorio Git que contiene el chart
-    repoURL: CHANGE_ME_GIT_REPO_URL  # <-- Ej: https://gitlab.com/org/osfatun-infra.git
+    repoURL: CHANGE_ME_GIT_REPO_URL  # <-- Ej: https://github.com/org/osfatun-infra.git
     targetRevision: HEAD
     path: kubernetes/charts/osfatun-backend
 
     helm:
-      # Valores que sobreescriben values.yaml.
-      # Los secrets sensibles se definen aquí (no van en Git).
-      # ArgoCD los almacena cifrados en su propio namespace.
       parameters:
+        # -- Imagen --
         - name: image.repository
           value: CHANGE_ME_REGISTRY/osfatun-backend
         - name: image.tag
           value: latest
+        # -- Secrets (no commitear valores reales) --
         - name: db.password
           value: CHANGE_ME_DB_APP_PASSWORD
         - name: django.secretKey
           value: CHANGE_ME_DJANGO_SECRET_KEY
         - name: imagePullSecret.dockerconfigjson
           value: CHANGE_ME_BASE64_DOCKER_CONFIG
+        # -- Entorno --
+        - name: db.name
+          value: osfatun
+        - name: redis.db
+          value: "0"
+        - name: django.envStage
+          value: PRODUCTION
+        - name: ingress.host
+          value: api.osfatun.ticksar.com.ar
+        - name: cors.whitelist
+          value: "https://api.osfatun.ticksar.com.ar"
+        - name: cors.trustedOrigins
+          value: "https://api.osfatun.ticksar.com.ar"
 
   destination:
     server: https://kubernetes.default.svc
-    namespace: osfatun-backend
+    namespace: osfatun-prod
 
   syncPolicy:
     automated:
-      prune: true      # Eliminar recursos que ya no están en Git
-      selfHeal: true   # Reconciliar si alguien cambia algo manualmente en el cluster
+      prune: true
+      selfHeal: true
     syncOptions:
       - CreateNamespace=true
