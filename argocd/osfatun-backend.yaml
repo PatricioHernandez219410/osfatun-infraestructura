@@ -2,15 +2,34 @@
 # ArgoCD Application — OSFATUN Backend (Producción)
 # =============================================================================
 # Despliega el backend Django en el namespace osfatun-prod.
+#
 # Para crear otro entorno (qa, dev), duplicar este archivo cambiando:
-#   - metadata.name
-#   - destination.namespace
-#   - parameters: db.name, redis.db, ingress.host, django.envStage, etc.
+#   - metadata.name               (osfatun-backend-qa, osfatun-backend-dev)
+#   - destination.namespace       (osfatun-qa, osfatun-dev)
+#   - parameters: db.name, redis.db, ingress.host, django.envStage,
+#                 django.settingsModule, django.debug, cors.*
+#
+# IMPORTANTE — Política de secretos:
+#   Este archivo declara TODOS los parameters (sensibles y no sensibles).
+#   Los sensibles tienen valor vacío ("") para que al desplegar solo
+#   haya que rellenarlos desde la UI de ArgoCD:
+#     Applications → <app> → App Details → PARAMETERS → Edit
+#
+#   Planilla completa de referencia:
+#     kubernetes/documentacion/argocd-backend-values.md
 #
 # Antes de aplicar:
-#   1. ArgoCD instalado y el repo registrado
-#   2. Redis compartido desplegado (argocd/redis.yaml)
-#   3. Base de datos creada en PostgreSQL
+#   1. ArgoCD instalado y el repo registrado (argocd repo add ...).
+#   2. Redis compartido desplegado (argocd/redis.yaml).
+#   3. Base de datos creada en PostgreSQL:
+#        CREATE DATABASE osfatun OWNER app;
+#   4. Cargar los parameters sensibles en la UI de ArgoCD ANTES del primer
+#      sync (ver argocd-backend-values.md). Alternativamente, crear la app
+#      con auto-sync deshabilitado, cargar los secretos y recién ahí sincronizar.
+#
+# Tras el primer deploy, los valores sensibles se editan directamente
+# desde la UI de ArgoCD. Si se re-aplica este YAML, los valores vacíos
+# se sobreescriben con lo que haya en la UI gracias a ServerSideApply.
 # =============================================================================
 apiVersion: argoproj.io/v1alpha1
 kind: Application
@@ -27,39 +46,119 @@ spec:
 
     helm:
       parameters:
-        # -- Imagen --
+        # -------------------------------------------------------------------
+        # Parameters POR-ENTORNO (no sensibles) — pueden vivir en Git.
+        # Para otros entornos, duplicar este archivo y ajustar estos valores.
+        # -------------------------------------------------------------------
+
+        # -- Imagen (registry + tag) --
         - name: image.repository
-          value: CHANGE_ME_REGISTRY/osfatun-backend
+          value: CHANGE_ME_REGISTRY/osfatun-backend      # ej: registry.gitlab.com/org/osfatun-backend
         - name: image.tag
-          value: latest
-        # -- Secrets (no commitear valores reales) --
-        - name: db.password
-          value: CHANGE_ME_DB_APP_PASSWORD
-        - name: django.secretKey
-          value: CHANGE_ME_DJANGO_SECRET_KEY
-        - name: imagePullSecret.dockerconfigjson
-          value: CHANGE_ME_BASE64_DOCKER_CONFIG
-        # -- Entorno --
+          value: latest                                  # idealmente fijar un tag versionado
+
+        # -- Django (entorno) --
+        - name: django.envStage
+          value: DESA
+        - name: django.settingsModule
+          value: config.settings.development
+        - name: django.debug
+          value: "True"
+
+        # -- Base de datos (nombre por entorno) --
         - name: db.name
-          value: osfatun
+          value: ""
+        - name: db.user
+          value: ""
+        # -- Redis (DB number aislado por entorno) --
         - name: redis.db
           value: "0"
-        - name: django.envStage
-          value: PRODUCTION
+
+        # -- Ingress y CORS (dominio por entorno) --
         - name: ingress.host
-          value: api.osfatun.ticksar.com.ar
+          value: api.osfatun.com.ar
         - name: cors.whitelist
-          value: "https://api.osfatun.ticksar.com.ar"
+          value: "https://api.osfatun.com.ar"
         - name: cors.trustedOrigins
-          value: "https://api.osfatun.ticksar.com.ar"
+          value: "https://api.osfatun.com.ar"
+
+        # -- Email (from y SMTP user no-secret) --
+        - name: email.defaultFrom
+          value: "noreply@osfatun.com.ar"
+
+        # -- Keycloak (URLs y realm — NO sensibles) --
+        - name: keycloak.url
+          value: "http://keycloak.keycloak.svc.cluster.local:8080"
+        - name: keycloak.frontendUrl
+          value: "https://auth.osfatun.com.ar"
+        - name: keycloak.realm
+          value: ""
+
+        # -------------------------------------------------------------------
+        # Parameters SENSIBLES — rellenar desde la UI de ArgoCD.
+        # -------------------------------------------------------------------
+
+        # -- Credenciales de base de datos --
+        - name: db.password
+          value: ""
+
+        # -- Django secret key --
+        - name: django.secretKey
+          value: ""
+
+        # -- Registry (imagePullSecret) --
+        - name: imagePullSecret.dockerconfigjson
+          value: ""
+
+        # -- Keycloak admin --
+        - name: keycloak.adminUser
+          value: ""
+        - name: keycloak.adminPassword
+          value: ""
+
+        # -- Email SMTP --
+        - name: email.user
+          value: ""
+        - name: email.password
+          value: ""
+
+        # -- Sentry (opcional) --
+        - name: sentry.dsn
+          value: ""
+
+        # -- WhatsApp Business API (opcional) --
+        - name: whatsapp.apiToken
+          value: ""
+        - name: whatsapp.phoneNumberId
+          value: ""
+
+        # -- Sistema externo (opcional) --
+        - name: externalSystem.apiUrl
+          value: ""
+        - name: externalSystem.apiKey
+          value: ""
+        - name: externalSystem.username
+          value: ""
+        - name: externalSystem.password
+          value: ""
+
+        # -- Webhooks (opcional) --
+        - name: webhook.apiUrl
+          value: ""
+        - name: webhook.apiToken
+          value: ""
 
   destination:
     server: https://kubernetes.default.svc
-    namespace: osfatun-prod
+    namespace: osfatun-desa
 
   syncPolicy:
-    automated:
-      prune: true
-      selfHeal: true
+    # Recomendación: la PRIMERA vez crear la app con syncPolicy.automated
+    # deshabilitado, cargar los secretos vía UI, y recién ahí activar auto-sync.
+    # Una vez cargados, este bloque automatizado es seguro.
+    # automated:
+      # prune: true
+      # selfHeal: true
     syncOptions:
       - CreateNamespace=true
+      - ServerSideApply=true   # preserva parameters cargados por UI al re-aplicar

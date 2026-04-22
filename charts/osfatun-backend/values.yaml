@@ -1,9 +1,20 @@
 # =============================================================================
 # OSFATUN Backend — Helm Values
 # =============================================================================
-# Valores por defecto del chart (entorno producción).
-# Para otros entornos, sobreescribir con ArgoCD parameter overrides o un
-# archivo values-<entorno>.yaml.
+# Valores por defecto del chart.
+#
+# Convención (IMPORTANTE):
+#   - Campos con valor NO vacío  => defaults razonables; se pueden sobreescribir
+#                                    desde ArgoCD (parameters o valueFiles) por
+#                                    entorno si hace falta.
+#   - Campos con valor ""        => SENSIBLES. El chart los deja explícitamente
+#                                    vacíos para obligar a cargarlos desde la
+#                                    interfaz web de ArgoCD como `parameters`
+#                                    del Application. De este modo NUNCA quedan
+#                                    versionados en Git.
+#
+# Planilla completa de parameters a cargar en ArgoCD UI por cada entorno:
+#   -> kubernetes/documentacion/argocd-backend-values.md
 #
 # Prerequisito: crear la base de datos en PostgreSQL:
 #   kubectl exec -it -n database main-db-1 -- psql -U postgres \
@@ -16,28 +27,29 @@
 
 # -- Imagen del backend -------------------------------------------------------
 image:
-  repository: CHANGE_ME_REGISTRY/osfatun-backend
+  # Registry + repo. Se sobreescribe por entorno desde el Application YAML.
+  repository: ""          # ej: registry.gitlab.com/org/osfatun-backend
   tag: latest
   pullPolicy: Always
 
 imagePullSecret:
-  # Contenido de ~/.docker/config.json en base64.
+  # SENSIBLE — Contenido de ~/.docker/config.json en base64 (ArgoCD UI).
   # Generar con:
   #   kubectl create secret docker-registry tmp \
-  #     --docker-server=ghcr.io \
+  #     --docker-server=registry.gitlab.com \
   #     --docker-username=<USUARIO> \
   #     --docker-password=<TOKEN> \
   #     --dry-run=client -o jsonpath='{.data.\.dockerconfigjson}'
-  dockerconfigjson: CHANGE_ME_BASE64_DOCKER_CONFIG
+  dockerconfigjson: ""
 
 # -- Base de datos (CloudNativePG) --------------------------------------------
 # El password DEBE coincidir con main-db-app-credentials de cloudnativepg.yaml.
 db:
   user: app
-  password: CHANGE_ME_DB_APP_PASSWORD
+  password: ""            # SENSIBLE — ArgoCD UI
   host: main-db-rw.database.svc.cluster.local
   port: "5432"
-  name: osfatun
+  name: osfatun           # Se sobreescribe por entorno (osfatun, osfatun_qa, osfatun_dev)
   connMaxAge: "60"
 
 # -- Redis (servicio compartido en namespace "redis") -------------------------
@@ -46,16 +58,16 @@ db:
 redis:
   host: redis.redis.svc.cluster.local
   port: "6379"
-  db: "0"
+  db: "0"                 # Se sobreescribe por entorno
 
 # -- Django -------------------------------------------------------------------
 django:
-  secretKey: CHANGE_ME_DJANGO_SECRET_KEY
+  secretKey: ""           # SENSIBLE — ArgoCD UI (generar con get_random_secret_key)
   debug: "False"
   settingsModule: config.settings.production
-  envStage: PRODUCTION
+  envStage: DESA    # Se sobreescribe por entorno (PRODUCTION, QA, DEVELOPMENT)
   logLevel: INFO
-  sslRedirect: "False"  # TLS lo termina Pomerium, no Django
+  sslRedirect: "False"    # TLS lo termina Pomerium, no Django
 
 # -- Gunicorn -----------------------------------------------------------------
 gunicorn:
@@ -105,7 +117,7 @@ media:
 
 # -- Ingress ------------------------------------------------------------------
 ingress:
-  host: api.osfatun.ticksar.com.ar
+  host: api.osfatun.com.ar   # Se sobreescribe por entorno
   className: pomerium
   tls: true
   publicAccess: true
@@ -117,35 +129,46 @@ certManager:
 # -- Seguridad y CORS --------------------------------------------------------
 cors:
   allowAll: "False"
-  whitelist: "https://api.osfatun.ticksar.com.ar"
-  trustedOrigins: "https://api.osfatun.ticksar.com.ar"
+  whitelist: "https://api.osfatun.com.ar"       # Se sobreescribe por entorno
+  trustedOrigins: "https://api.osfatun.com.ar"  # Se sobreescribe por entorno
+
+# -- Keycloak (IdP / OIDC) ----------------------------------------------------
+# URL interna del cluster para llamadas server-to-server (Admin REST API).
+# URL frontend (pública) para validar el issuer del JWT emitido a los browsers.
+keycloak:
+  url: "http://keycloak.keycloak.svc.cluster.local:8080"
+  frontendUrl: "https://auth.osfatun.com.ar"
+  realm: osfatun
+  adminUser: ""           # SENSIBLE — ArgoCD UI (usuario admin del realm master)
+  adminPassword: ""       # SENSIBLE — ArgoCD UI
+  adminClientId: admin-cli
 
 # -- Email (SMTP) ------------------------------------------------------------
 email:
   host: smtp.gmail.com
   port: "587"
   useTls: "True"
-  user: CHANGE_ME_EMAIL
-  password: CHANGE_ME_EMAIL_PASSWORD
-  defaultFrom: CHANGE_ME_FROM_EMAIL
+  user: ""                # SENSIBLE — ArgoCD UI
+  password: ""            # SENSIBLE — ArgoCD UI
+  defaultFrom: ""         # ej: noreply@osfatun.ticksar.com.ar (no sensible pero por-entorno)
 
 # -- Sentry ------------------------------------------------------------------
 sentry:
-  dsn: CHANGE_ME_SENTRY_DSN
+  dsn: ""                 # SENSIBLE (opcional) — ArgoCD UI; vacío desactiva Sentry
   tracesSampleRate: "0.1"
 
 # -- WhatsApp Business API ----------------------------------------------------
 whatsapp:
   apiUrl: "https://graph.facebook.com/v21.0"
-  apiToken: CHANGE_ME_WHATSAPP_TOKEN
-  phoneNumberId: CHANGE_ME_WHATSAPP_PHONE_ID
+  apiToken: ""            # SENSIBLE (opcional) — ArgoCD UI
+  phoneNumberId: ""       # SENSIBLE (opcional) — ArgoCD UI
 
 # -- Sistema externo (sincronización) ----------------------------------------
 externalSystem:
-  apiUrl: CHANGE_ME_EXTERNAL_API_URL
-  apiKey: CHANGE_ME_EXTERNAL_API_KEY
-  username: CHANGE_ME_EXTERNAL_USERNAME
-  password: CHANGE_ME_EXTERNAL_PASSWORD
+  apiUrl: ""              # Por-entorno (opcional) — puede ir en Git
+  apiKey: ""              # SENSIBLE (opcional) — ArgoCD UI
+  username: ""            # SENSIBLE (opcional) — ArgoCD UI
+  password: ""            # SENSIBLE (opcional) — ArgoCD UI
 
 # -- Sincronización -----------------------------------------------------------
 sync:
@@ -154,5 +177,5 @@ sync:
 
 # -- Webhooks -----------------------------------------------------------------
 webhook:
-  apiUrl: CHANGE_ME_WEBHOOK_URL
-  apiToken: CHANGE_ME_WEBHOOK_TOKEN
+  apiUrl: ""              # Por-entorno (opcional) — puede ir en Git
+  apiToken: ""            # SENSIBLE (opcional) — ArgoCD UI

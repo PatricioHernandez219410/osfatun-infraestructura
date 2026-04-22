@@ -1,6 +1,6 @@
-apiVersion: v1
-kind: Service
+# Patch para el Service pomerium-proxy (creado por el operador de Pomerium).
+# Aplicar con:
+#   kubectl patch service pomerium-proxy -n pomerium --type merge --patch-file pomerium-proxy.yaml
 metadata:
-  name: pomerium-proxy
   annotations:
     external-dns.alpha.kubernetes.io/hostname: 'authenticate.prueba.ticksar.com.ar'

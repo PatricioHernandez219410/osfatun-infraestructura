@@ -73,7 +73,7 @@ Documentación de respaldo para el cluster K3s de producción de OSFATUN.
 | `cloudnativepg.yaml` | Namespace `database`, secrets de credenciales, Cluster CloudNativePG (PostgreSQL 16). Fijado al nodo con label `node-role=database`. |
 | `keycloak.yaml` | Namespace `keycloak`, secret de credenciales DB (réplica), secret admin Keycloak, Deployment, Service, Issuer cert-manager, Ingress. Fijado al nodo control-plane. |
 | `issuer.yaml` | Issuer ACME Let's Encrypt producción en namespace `pomerium`. |
-| `certificate.yaml` | Certificate standalone para `authenticate.prueba.ticksar.com.ar` (namespace `pomerium`). **Ya no es necesario**: `pomerium.yaml` delega la emisión a cert-manager via Ingress. Conservado como referencia. |
+| `certificate.yaml` | Certificate standalone para `authenticate.prueba.ticksar.com.ar` (namespace `pomerium`). **Es fundamental necesario**: se debe aplicar despues de haber aplicado el issuer de cert-manager para que pueda aplicar el certificado. |
 | `ingressclass.yaml` | IngressClass `pomerium` como default del cluster. |
 | `pomerium.yaml` | CRD Pomerium — configuración global con Keycloak como IdP OIDC. Incluye `spec.authenticate.ingress` para que cert-manager emita el certificado del endpoint authenticate via HTTP-01. |
 | `pomerium-proxy.yaml` | Service `pomerium-proxy` con annotation de external-dns. |
@@ -85,7 +85,8 @@ Documentación de respaldo para el cluster K3s de producción de OSFATUN.
 | `charts/redis/` | Helm chart de Redis compartido. Instancia única usada por todos los entornos (cada uno usa un DB number distinto). |
 | `argocd-ingress.yaml` | ConfigMap insecure + Issuer cert-manager + Ingress para exponer la UI de ArgoCD via Pomerium (restringido a grupo `admin`). |
 | `argocd/redis.yaml` | Application CRD de ArgoCD para desplegar Redis compartido en namespace `redis`. |
-| `argocd/osfatun-backend.yaml` | Application CRD de ArgoCD para el backend producción (`osfatun-prod`). Duplicar para otros entornos. |
+| `argocd/osfatun-backend.yaml` | Application CRD de ArgoCD para el backend producción (`osfatun-prod`). **Solo contiene parameters NO sensibles.** Los secretos se cargan desde la UI de ArgoCD. Duplicar para otros entornos. |
+| `documentacion/argocd-backend-values.md` | Planilla completa de parameters (sensibles y por-entorno) para cargar al declarar cada instancia del backend en ArgoCD. |
 | `capa1.yaml` | Servicio de ejemplo (whoami). No forma parte del despliegue de producción. |
 | `capa2.yaml` | Servicio de ejemplo (uptime-kuma). No forma parte del despliegue de producción. |
 
@@ -115,6 +116,12 @@ kubectl taint node <NOMBRE_NODO_DB> node-role=database:NoSchedule
 ```bash
 kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.20.2/cert-manager.yaml
 kubectl wait --for=condition=Available deployment --all -n cert-manager --timeout=120s
+```
+
+A continuación se debe aplicar el issuer para que esté declarado cert-manager y pueda hacer la generación automatica de certificados antes de terminar de levantar pomerium, de manera en que cuando se genere, se autocertifique el subdominio "authenticate":
+```bash
+kubectl apply -f issuer.yaml
+kubectl patch service pomerium-proxy -n pomerium --type merge --patch-file pomerium-proxy.yaml
 ```
 
 Si las VPS no estan en la misma red, por ejemplo en AWS en la misma zona, es necesario indicarle a K3S que debe utilizar la IP pública para el DNS:
@@ -157,12 +164,10 @@ kubectl apply -f secret_keycloak.yaml
 kubectl apply -f pomerium.yaml
 ```
 
-### Paso 4 — Infraestructura base (IngressClass, Issuer)
+### Paso 4 — Infraestructura base (IngressClass)
 
 ```bash
 kubectl apply -f ingressclass.yaml
-kubectl apply -f issuer.yaml
-kubectl apply -f pomerium-proxy.yaml
 # certificate.yaml NO se aplica: cert-manager emite el certificado
 # automáticamente a partir del Ingress que crea pomerium.yaml
 # (ver spec.authenticate.ingress).
@@ -280,20 +285,40 @@ kubectl exec -it -n database main-db-1 -- psql -U postgres -c "CREATE DATABASE o
 argocd repo add <REPO_URL> --username <USER> --password <TOKEN>
 ```
 
-**10.3 — Desplegar producción:**
+**10.3 — Desplegar producción (flujo con secretos vía UI de ArgoCD):**
+
+El `Application` YAML en Git contiene **solo** parameters no sensibles (imagen, envStage, DB name, dominio, CORS, URLs de Keycloak). Todos los secretos (`db.password`, `django.secretKey`, `imagePullSecret.dockerconfigjson`, `keycloak.adminPassword`, etc.) se cargan exclusivamente desde la interfaz web de ArgoCD. Ver planilla completa en `documentacion/argocd-backend-values.md`.
 
 ```bash
-# Editar argocd/osfatun-backend.yaml: configurar repoURL y parameters (secrets)
+# 1. Editar argocd/osfatun-backend.yaml: configurar spec.source.repoURL y
+#    ajustar los parameters por-entorno (image.repository, ingress.host, etc.).
+
+# 2. Aplicar el Application (la primera vez, recomendado con auto-sync apagado):
 kubectl apply -f argocd/osfatun-backend.yaml
+
+# 3. En la UI de ArgoCD (argo.osfatun.ticksar.com.ar):
+#    Applications → osfatun-backend-prod → App Details → PARAMETERS → EDIT
+#    Agregar los parameters sensibles uno a uno (lista en argocd-backend-values.md).
+
+# 4. Desde la UI pulsar SYNC para la primera sincronización.
+#    A partir de entonces, con syncPolicy.automated activado en el YAML,
+#    ArgoCD se encarga del resto. Los secretos cargados por UI se preservan
+#    al re-aplicar desde Git (syncOptions: ServerSideApply=true).
 ```
 
 **10.4 — Agregar otro entorno (ejemplo: QA):**
 
 1. Crear base de datos: `CREATE DATABASE osfatun_qa OWNER app;`
-2. Crear DNS para `api-qa.osfatun.ticksar.com.ar`
-3. Duplicar `argocd/osfatun-backend.yaml` → `argocd/osfatun-backend-qa.yaml`
-4. Cambiar: `name` → `osfatun-backend-qa`, `namespace` → `osfatun-qa`, `db.name` → `osfatun_qa`, `redis.db` → `"1"`, `ingress.host` → `api-qa.osfatun.ticksar.com.ar`
-5. `kubectl apply -f argocd/osfatun-backend-qa.yaml`
+2. Crear DNS para `api-qa.osfatun.ticksar.com.ar`.
+3. Duplicar `argocd/osfatun-backend.yaml` → `argocd/osfatun-backend-qa.yaml`.
+4. Ajustar en la copia (todos son parameters NO sensibles):
+   - `metadata.name` → `osfatun-backend-qa`
+   - `destination.namespace` → `osfatun-qa`
+   - `parameters`: `django.envStage=QA`, `db.name=osfatun_qa`, `redis.db="1"`, `ingress.host=api-qa.osfatun.ticksar.com.ar`, `cors.whitelist/trustedOrigins` con el nuevo dominio, `email.defaultFrom` apropiado.
+5. `kubectl apply -f argocd/osfatun-backend-qa.yaml`.
+6. Cargar los parameters sensibles en la UI de ArgoCD para la nueva app (independientes de los de prod).
+
+El chart es el mismo para los tres entornos — solo cambian los parameters del Application.
 
 ---
 
@@ -301,11 +326,11 @@ kubectl apply -f argocd/osfatun-backend.yaml
 
 ### Credenciales y secrets
 
-- **`CHANGE_ME_DB_APP_PASSWORD`** en `cloudnativepg.yaml` debe coincidir con el mismo valor en `keycloak.yaml` (`keycloak-db-credentials`) y en `osfatun-backend.yaml` (`backend-db-credentials`). Mantener sincronizados manualmente.
+- **`CHANGE_ME_DB_APP_PASSWORD`** en `cloudnativepg.yaml` debe coincidir con el mismo valor en `keycloak.yaml` (`keycloak-db-credentials`) y con el parameter `db.password` de cada Application de ArgoCD del backend. Mantener sincronizados manualmente.
 - **`CHANGE_ME_DB_SUPERUSER_PASSWORD`** en `cloudnativepg.yaml` — password del superusuario `postgres`.
-- **`CHANGE_ME_KEYCLOAK_PASSWORD`** en `keycloak.yaml` — password del admin de Keycloak.
+- **`CHANGE_ME_KEYCLOAK_PASSWORD`** en `keycloak.yaml` — password del admin de Keycloak; mismo valor que se carga como `keycloak.adminPassword` en cada Application del backend.
 - **`client_secret`** en `secret_keycloak.yaml` — se obtiene de Keycloak después de crear el client OIDC.
-- **Secrets del backend** se configuran como parameter overrides en `argocd/osfatun-backend.yaml` (uno por entorno). Ver `documentacion/helm-argocd.md` para detalles.
+- **Secrets del backend (por entorno)** — NUNCA en Git. Se cargan por cada Application de ArgoCD desde la UI web (o `argocd app set --helm-set ...`). El template `argocd/osfatun-backend.yaml` solo incluye parameters no sensibles. Planilla completa en `documentacion/argocd-backend-values.md`.
 - **Redis** no requiere credenciales (sin autenticación, accesible solo desde dentro del cluster).
 
 ### Verificación del estado
