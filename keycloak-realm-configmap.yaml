@@ -213,5 +213,11 @@ data:
         "email",
         "roles",
         "web-origins"
+      ],
+      "defaultOptionalClientScopes": [
+        "offline_access",
+        "address",
+        "phone",
+        "microprofile-jwt"
       ]
     }
