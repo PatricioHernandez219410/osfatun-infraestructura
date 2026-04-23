@@ -1,0 +1,217 @@
+# =============================================================================
+# Keycloak — Realm Import ConfigMap
+# =============================================================================
+# Realm base "osfatun" que Keycloak importa automáticamente en el primer
+# arranque (flag --import-realm). Si el realm ya existe, se ignora.
+#
+# Incluye:
+#   - Roles: admin, operador, auditor, consulta
+#   - Grupos: Administradores, Operadores, Auditores, Consulta
+#   - Clients: osfatun-backend, osfatun-frontend, osfatun-admin, admin-cli, pomerium
+#   - Client Scopes: roles (group membership + realm role mappers)
+#   - Theme: osfatun (montado via keycloak-theme ConfigMap)
+#
+# IMPORTANTE:
+#   - Los client_secret en este JSON son PLACEHOLDERS. Después de la primera
+#     importación, cambiarlos desde la UI de Keycloak.
+#   - El client "pomerium" se crea con un secret provisorio. Después de
+#     importar, copiar el secret real y actualizar secret_keycloak.yaml.
+#   - Las redirect URIs de producción se agregan manualmente post-importación.
+# =============================================================================
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: keycloak-realm-import
+  namespace: keycloak
+data:
+  osfatun-realm.json: |
+    {
+      "realm": "osfatun",
+      "enabled": true,
+      "displayName": "OSFATUN",
+      "loginTheme": "osfatun",
+      "sslRequired": "none",
+      "registrationAllowed": false,
+      "loginWithEmailAllowed": true,
+      "duplicateEmailsAllowed": false,
+      "resetPasswordAllowed": true,
+      "editUsernameAllowed": false,
+      "bruteForceProtected": true,
+      "roles": {
+        "realm": [
+          {
+            "name": "admin",
+            "description": "Administrador general del sistema"
+          },
+          {
+            "name": "operador",
+            "description": "Operador de filial"
+          },
+          {
+            "name": "auditor",
+            "description": "Auditor de prestaciones"
+          },
+          {
+            "name": "consulta",
+            "description": "Solo consulta"
+          }
+        ]
+      },
+      "groups": [
+        {
+          "name": "Administradores",
+          "realmRoles": ["admin"]
+        },
+        {
+          "name": "Operadores",
+          "realmRoles": ["operador"]
+        },
+        {
+          "name": "Auditores",
+          "realmRoles": ["auditor"]
+        },
+        {
+          "name": "Consulta",
+          "realmRoles": ["consulta"]
+        },
+        {
+          "name": "admin",
+          "subGroups": []
+        }
+      ],
+      "clients": [
+        {
+          "clientId": "pomerium",
+          "name": "Pomerium Ingress",
+          "enabled": true,
+          "clientAuthenticatorType": "client-secret",
+          "secret": "CHANGE_ME_POMERIUM_CLIENT_SECRET",
+          "redirectUris": [
+            "https://authenticate.prueba.ticksar.com.ar/oauth2/callback"
+          ],
+          "webOrigins": [
+            "https://authenticate.prueba.ticksar.com.ar"
+          ],
+          "publicClient": false,
+          "protocol": "openid-connect",
+          "standardFlowEnabled": true,
+          "directAccessGrantsEnabled": false,
+          "serviceAccountsEnabled": false
+        },
+        {
+          "clientId": "osfatun-backend",
+          "name": "OSFATUN Backend",
+          "enabled": true,
+          "clientAuthenticatorType": "client-secret",
+          "secret": "CHANGE_ME_BACKEND_CLIENT_SECRET",
+          "redirectUris": [
+            "http://localhost:8000/*",
+            "http://localhost:3000/*",
+            "http://localhost:5173/*",
+            "http://localhost:5174/*"
+          ],
+          "webOrigins": [
+            "http://localhost:8000",
+            "http://localhost:3000",
+            "http://localhost:5173",
+            "http://localhost:5174"
+          ],
+          "publicClient": false,
+          "protocol": "openid-connect",
+          "standardFlowEnabled": true,
+          "directAccessGrantsEnabled": true,
+          "serviceAccountsEnabled": true,
+          "authorizationServicesEnabled": false
+        },
+        {
+          "clientId": "osfatun-frontend",
+          "name": "Sistema de Gestion OSFATUN",
+          "enabled": true,
+          "publicClient": true,
+          "redirectUris": [
+            "http://localhost:3000/*",
+            "http://localhost:5173/*",
+            "http://localhost:5175/*"
+          ],
+          "webOrigins": [
+            "http://localhost:3000",
+            "http://localhost:5173",
+            "http://localhost:5175"
+          ],
+          "protocol": "openid-connect",
+          "standardFlowEnabled": true,
+          "directAccessGrantsEnabled": true
+        },
+        {
+          "clientId": "osfatun-admin",
+          "name": "Panel de Administracion OSFATUN",
+          "enabled": true,
+          "publicClient": true,
+          "redirectUris": [
+            "http://localhost:5174/*",
+            "http://localhost:5175/*",
+            "http://localhost:3000/*"
+          ],
+          "webOrigins": [
+            "http://localhost:5174",
+            "http://localhost:5175",
+            "http://localhost:3000"
+          ],
+          "protocol": "openid-connect",
+          "standardFlowEnabled": true,
+          "directAccessGrantsEnabled": true
+        },
+        {
+          "clientId": "admin-cli",
+          "name": "Admin CLI",
+          "enabled": true,
+          "clientAuthenticatorType": "client-secret",
+          "secret": "CHANGE_ME_ADMIN_CLI_SECRET",
+          "publicClient": false,
+          "serviceAccountsEnabled": true,
+          "standardFlowEnabled": false,
+          "directAccessGrantsEnabled": true
+        }
+      ],
+      "clientScopes": [
+        {
+          "name": "roles",
+          "protocol": "openid-connect",
+          "protocolMappers": [
+            {
+              "name": "groups",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-group-membership-mapper",
+              "config": {
+                "full.path": "false",
+                "id.token.claim": "true",
+                "access.token.claim": "true",
+                "claim.name": "groups",
+                "userinfo.token.claim": "true"
+              }
+            },
+            {
+              "name": "realm roles",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-usermodel-realm-role-mapper",
+              "config": {
+                "multivalued": "true",
+                "claim.name": "realm_access.roles",
+                "jsonType.label": "String",
+                "id.token.claim": "true",
+                "access.token.claim": "true",
+                "userinfo.token.claim": "true"
+              }
+            }
+          ]
+        }
+      ],
+      "defaultDefaultClientScopes": [
+        "role_list",
+        "profile",
+        "email",
+        "roles",
+        "web-origins"
+      ]
+    }

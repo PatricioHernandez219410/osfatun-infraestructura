@@ -57,6 +57,22 @@ spec:
         - name: image.tag
           value: latest                                  # idealmente fijar un tag versionado
 
+        # -- Registry (imagePullSecret) --
+        - name: imagePullSecret.dockerconfigjson
+          value: ""
+
+        # -- Base de datos (nombre por entorno) --
+        - name: db.name
+          value: ""
+        - name: db.user
+          value: ""
+        - name: db.password
+          value: ""
+
+        # -- Redis (DB number aislado por entorno) --
+        - name: redis.db
+          value: "0"
+
         # -- Django (entorno) --
         - name: django.envStage
           value: DESA
@@ -64,15 +80,6 @@ spec:
           value: config.settings.development
         - name: django.debug
           value: "True"
-
-        # -- Base de datos (nombre por entorno) --
-        - name: db.name
-          value: ""
-        - name: db.user
-          value: ""
-        # -- Redis (DB number aislado por entorno) --
-        - name: redis.db
-          value: "0"
 
         # -- Ingress y CORS (dominio por entorno) --
         - name: ingress.host
@@ -82,10 +89,6 @@ spec:
         - name: cors.trustedOrigins
           value: "https://api.osfatun.com.ar"
 
-        # -- Email (from y SMTP user no-secret) --
-        - name: email.defaultFrom
-          value: "noreply@osfatun.com.ar"
-
         # -- Keycloak (URLs y realm — NO sensibles) --
         - name: keycloak.url
           value: "http://keycloak.keycloak.svc.cluster.local:8080"
@@ -94,20 +97,8 @@ spec:
         - name: keycloak.realm
           value: ""
 
-        # -------------------------------------------------------------------
-        # Parameters SENSIBLES — rellenar desde la UI de ArgoCD.
-        # -------------------------------------------------------------------
-
-        # -- Credenciales de base de datos --
-        - name: db.password
-          value: ""
-
         # -- Django secret key --
         - name: django.secretKey
-          value: ""
-
-        # -- Registry (imagePullSecret) --
-        - name: imagePullSecret.dockerconfigjson
           value: ""
 
         # -- Keycloak admin --
@@ -117,35 +108,11 @@ spec:
           value: ""
 
         # -- Email SMTP --
+        - name: email.defaultFrom
+          value: "noreply@osfatun.com.ar"
         - name: email.user
           value: ""
         - name: email.password
-          value: ""
-
-        # -- Sentry (opcional) --
-        - name: sentry.dsn
-          value: ""
-
-        # -- WhatsApp Business API (opcional) --
-        - name: whatsapp.apiToken
-          value: ""
-        - name: whatsapp.phoneNumberId
-          value: ""
-
-        # -- Sistema externo (opcional) --
-        - name: externalSystem.apiUrl
-          value: ""
-        - name: externalSystem.apiKey
-          value: ""
-        - name: externalSystem.username
-          value: ""
-        - name: externalSystem.password
-          value: ""
-
-        # -- Webhooks (opcional) --
-        - name: webhook.apiUrl
-          value: ""
-        - name: webhook.apiToken
           value: ""
 
   destination:

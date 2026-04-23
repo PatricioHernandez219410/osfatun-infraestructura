@@ -71,7 +71,9 @@ Documentación de respaldo para el cluster K3s de producción de OSFATUN.
 | Archivo | Descripción |
 |---------|-------------|
 | `cloudnativepg.yaml` | Namespace `database`, secrets de credenciales, Cluster CloudNativePG (PostgreSQL 16). Fijado al nodo con label `node-role=database`. |
-| `keycloak.yaml` | Namespace `keycloak`, secret de credenciales DB (réplica), secret admin Keycloak, Deployment, Service, Issuer cert-manager, Ingress. Fijado al nodo control-plane. |
+| `keycloak.yaml` | Namespace `keycloak`, secret de credenciales DB (réplica), secret admin Keycloak, Deployment (con init container para theme + realm import), Service, Issuer cert-manager, Ingress. Fijado al nodo control-plane. |
+| `keycloak-theme-configmap.yaml` | ConfigMap `keycloak-theme` con el theme custom "osfatun" (templates FTL, CSS, imágenes). Un init container en el Deployment copia los archivos a la estructura de directorios que Keycloak espera. |
+| `keycloak-realm-configmap.yaml` | ConfigMap `keycloak-realm-import` con el JSON del realm base "osfatun". Se monta en `/opt/keycloak/data/import/` y Keycloak lo importa automáticamente en el primer arranque (`--import-realm`). Incluye roles, grupos, clients (pomerium, backend, frontend, admin) y client scopes. Los `client_secret` son placeholders. |
 | `issuer.yaml` | Issuer ACME Let's Encrypt producción en namespace `pomerium`. |
 | `certificate.yaml` | Certificate standalone para `authenticate.prueba.ticksar.com.ar` (namespace `pomerium`). **Es fundamental necesario**: se debe aplicar despues de haber aplicado el issuer de cert-manager para que pueda aplicar el certificado. |
 | `ingressclass.yaml` | IngressClass `pomerium` como default del cluster. |
@@ -175,40 +177,64 @@ kubectl apply -f ingressclass.yaml
 
 ### Paso 5 — Keycloak
 
+El despliegue de Keycloak consta de tres manifiestos que se aplican en orden:
+
+1. **`keycloak-theme-configmap.yaml`** — Theme custom "osfatun" (templates FTL, CSS, imágenes).
+2. **`keycloak-realm-configmap.yaml`** — Realm base con roles, grupos, clients y mappers.
+3. **`keycloak.yaml`** — Namespace, secrets, Deployment, Service, Issuer, Ingress.
+
+El Deployment incluye:
+- Un **init container** (`busybox`) que copia los archivos del theme desde el ConfigMap plano a la estructura de subdirectorios que Keycloak espera (`themes/osfatun/login/resources/css/`, `img/`, etc.).
+- El flag **`--import-realm`** que hace que Keycloak importe automáticamente el JSON del realm en el primer arranque (si el realm ya existe, se ignora).
+
 ```bash
+# 5.1 — Editar secrets ANTES de aplicar:
+#   keycloak.yaml → keycloak-db-credentials.password (debe coincidir con cloudnativepg.yaml)
+#   keycloak.yaml → keycloak-credentials.KEYCLOAK_ADMIN_PASSWORD
+
+# 5.2 — Aplicar ConfigMaps (theme + realm)
+kubectl apply -f keycloak-theme-configmap.yaml
+kubectl apply -f keycloak-realm-configmap.yaml
+
+# 5.3 — Aplicar Keycloak (namespace, secrets, deployment, service, issuer, ingress)
 kubectl apply -f keycloak.yaml
 kubectl wait --for=condition=Available deployment/keycloak -n keycloak --timeout=300s
+
+# 5.4 — Verificar que el realm se importó y el theme cargó
+kubectl logs -n keycloak deployment/keycloak | grep -i "import\|theme"
 ```
 
-### Paso 6 — Configurar Keycloak (manual, via UI)
+### Paso 6 — Configurar Keycloak (post-importación, via UI)
 
 Acceder a `https://auth.osfatun.ticksar.com.ar` con las credenciales del secret `keycloak-credentials`.
 
-**6.1 — Realm y client OIDC para Pomerium:**
+El realm `osfatun`, los clients, roles, grupos y mappers ya fueron creados automáticamente por `--import-realm`. Solo quedan tareas manuales:
 
-1. **Crear realm** `osfatun`
-2. **Crear client** OpenID Connect:
-   - **Client ID:** `pomerium`
-   - **Client authentication:** On (confidential)
-   - **Valid redirect URIs:** `https://authenticate.prueba.ticksar.com.ar/oauth2/callback`
-   - **Web origins:** `https://authenticate.prueba.ticksar.com.ar`
-3. Ir a la pestaña **Credentials** del client y copiar el **Client Secret**
+**6.1 — Obtener el client_secret real de Pomerium:**
 
-**6.2 — Grupo `admin` (para acceso a ArgoCD y otros paneles):**
+1. **Realm `osfatun` → Clients → `pomerium` → Credentials**
+2. Copiar el **Client Secret** (Keycloak genera uno nuevo, ignorando el placeholder del JSON).
+3. Editar `secret_keycloak.yaml` y reemplazar el `client_secret` con el valor real.
 
-4. **Groups → Create group** → nombre: `admin`
-5. **Users** → seleccionar el/los usuario(s) administrador(es) → pestaña **Groups** → **Join group** → `admin`
+**6.2 — Agregar redirect URIs de producción a los clients:**
 
-**6.3 — Group Mapper (para que Pomerium reciba los grupos en el token OIDC):**
+Para cada client (`osfatun-backend`, `osfatun-frontend`, `osfatun-admin`), agregar las URIs de producción a **Valid redirect URIs** y **Web origins** según corresponda.
 
-6. **Clients → `pomerium` → Client scopes → `pomerium-dedicated`**
-7. **Add mapper → By configuration → Group Membership:**
+**6.3 — Crear el primer usuario administrador:**
+
+1. **Users → Add user** → completar datos.
+2. **Credentials** → setear password.
+3. **Groups → Join group → `admin`** (y/o `Administradores`).
+
+**6.4 — Group Mapper para el client `pomerium` (si no se importó):**
+
+Verificar que el mapper `groups` existe en **Clients → `pomerium` → Client scopes → `pomerium-dedicated`**. Si no:
+
+1. **Add mapper → By configuration → Group Membership:**
    - **Name:** `groups`
    - **Token Claim Name:** `groups`
    - **Full group path:** OFF
-   - **Add to ID token:** ON
-   - **Add to access token:** ON
-   - **Add to userinfo:** ON
+   - **Add to ID token / access token / userinfo:** ON
 
 Esto permite que Pomerium evalúe políticas basadas en grupos de Keycloak (ej: restringir ArgoCD al grupo `admin`).
 
