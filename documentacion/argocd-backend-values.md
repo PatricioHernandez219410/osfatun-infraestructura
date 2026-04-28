@@ -87,7 +87,20 @@ Los nombres son exactamente los que esperás en la UI de ArgoCD (dot-notation de
 | `django.secretKey` | `SECRET_KEY` de Django. Firma sessions, CSRF, JWT. **≥50 chars aleatorios.** | `python -c "from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())"` |
 | `imagePullSecret.dockerconfigjson` | `~/.docker/config.json` en base64 para que el cluster pueda pullear del registry privado. | `kubectl create secret docker-registry tmp --docker-server=registry.gitlab.com --docker-username=<USER> --docker-password=<TOKEN> --dry-run=client -o jsonpath='{.data.\.dockerconfigjson}'` |
 
-#### B.2 — Obligatorios si se usa Keycloak (y el backend lo usa)
+#### B.2 — Usuario administrador inicial
+
+| Parameter | Descripción | Cómo obtener |
+|-----------|-------------|--------------|
+| `admin.username` | Username del admin inicial. | Elegir uno fuerte (ej: `radmin`). |
+| `admin.password` | Password del admin inicial. **≥16 chars, mayúsculas, minúsculas, números, símbolos.** | Generar manualmente. |
+| `admin.email` | Email del admin (opcional). | — |
+| `admin.firstName` | Nombre (default: `Administrador`). | — |
+| `admin.lastName` | Apellido (default: `Sistema`). | — |
+| `admin.dni` | Número de documento (default: `00000000`). **Debe ser único en la DB.** | — |
+
+> El command `ensure_admin` se ejecuta automáticamente en cada deploy (después de `migrate`). Es idempotente: si el usuario ya existe, no hace nada. Si `admin.username` o `admin.password` están vacíos, se omite silenciosamente.
+
+#### B.3 — Obligatorios si se usa Keycloak (y el backend lo usa)
 
 | Parameter | Descripción |
 |-----------|-------------|
@@ -96,7 +109,7 @@ Los nombres son exactamente los que esperás en la UI de ArgoCD (dot-notation de
 
 > `keycloak.adminClientId` queda en `admin-cli` (default en `values.yaml`), no suele cambiar.
 
-#### B.3 — Opcionales (dejar sin cargar si la integración no se usa)
+#### B.4 — Opcionales (dejar sin cargar si la integración no se usa)
 
 | Parameter | Descripción | Si se omite |
 |-----------|-------------|-------------|
@@ -127,7 +140,11 @@ argocd app set osfatun-backend-prod \
   --helm-set django.secretKey='<RANDOM_SECRET>' \
   --helm-set imagePullSecret.dockerconfigjson='<BASE64>' \
   --helm-set keycloak.adminUser='admin' \
-  --helm-set keycloak.adminPassword='<KC_ADMIN_PASS>'
+  --helm-set keycloak.adminPassword='<KC_ADMIN_PASS>' \
+  --helm-set admin.username='<ADMIN_USER>' \
+  --helm-set admin.password='<ADMIN_PASS>' \
+  --helm-set admin.email='<ADMIN_EMAIL>' \
+  --helm-set admin.dni='<ADMIN_DNI>'
 
 # Sincronizar
 argocd app sync osfatun-backend-prod

@@ -175,6 +175,17 @@ sync:
   frequencyMinutes: "30"
   enabled: "True"
 
+# -- Usuario administrador inicial --------------------------------------------
+# ensure_admin se ejecuta en cada deploy. Si están definidos, crea el admin
+# la primera vez. Si ya existe, no hace nada (idempotente).
+admin:
+  username: ""            # SENSIBLE — ArgoCD UI (ej: radmin)
+  password: ""            # SENSIBLE — ArgoCD UI (password fuerte)
+  email: ""               # opcional
+  firstName: Administrador
+  lastName: Sistema
+  dni: "00000000"         # OBLIGATORIO — numero_documento (unique)
+
 # -- Webhooks -----------------------------------------------------------------
 webhook:
   apiUrl: ""              # Por-entorno (opcional) — puede ir en Git

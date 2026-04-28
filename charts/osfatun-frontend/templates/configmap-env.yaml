@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: frontend-env
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "osfatun-frontend.labels" . | nindent 4 }}
+data:
+  VITE_API_ADDRESS: {{ .Values.env.viteApiAddress | quote }}
+  VITE_APP_NAME: {{ .Values.env.viteAppName | quote }}
+  VITE_APP_ENV: {{ .Values.env.viteAppEnv | quote }}
+  VITE_DEBUG: {{ .Values.env.viteDebug | quote }}
+  VITE_KC_URL: {{ .Values.env.viteKcUrl | quote }}
+  VITE_KC_REALM: {{ .Values.env.viteKcRealm | quote }}
+  VITE_KC_CLIENT_ID: {{ .Values.env.viteKcClientId | quote }}
+  VITE_ADMIN_URL: {{ .Values.env.viteAdminUrl | quote }}

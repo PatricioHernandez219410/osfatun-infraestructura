@@ -1,0 +1,79 @@
+# =============================================================================
+# OSFATUN Frontend (Panel Usuario) — Helm Values
+# =============================================================================
+# Valores por defecto del chart.
+#
+# Convención (IMPORTANTE):
+#   - Campos con valor NO vacío  => defaults razonables; se pueden sobreescribir
+#                                    desde ArgoCD (parameters o valueFiles) por
+#                                    entorno si hace falta.
+#   - Campos con valor ""        => SENSIBLES. El chart los deja explícitamente
+#                                    vacíos para obligar a cargarlos desde la
+#                                    interfaz web de ArgoCD como `parameters`
+#                                    del Application. De este modo NUNCA quedan
+#                                    versionados en Git.
+#
+# NOTA sobre variables VITE_*:
+#   La imagen Docker se construye con placeholders (__VITE_*__). Al iniciar
+#   el contenedor, un entrypoint reemplaza los placeholders por los valores
+#   reales de las env vars. Esto permite usar UNA sola imagen para todos los
+#   entornos, gestionando los valores desde ArgoCD (sección `env` abajo).
+#
+# Planilla completa de parameters a cargar en ArgoCD UI por cada entorno:
+#   -> kubernetes/documentacion/argocd-frontend-usuario-values.md
+# =============================================================================
+
+# -- Variables de entorno del frontend (runtime) ------------------------------
+# Estas variables se inyectan como env vars en el contenedor. El entrypoint
+# del Dockerfile reemplaza los placeholders __VITE_*__ en los archivos JS
+# con estos valores al iniciar. Así se usa UNA sola imagen para todos los
+# entornos, cambiando solo los values por entorno desde ArgoCD.
+env:
+  viteApiAddress: ""             # ej: https://backoffice-api.desa.osfatun.com.ar
+  viteKcUrl: ""                  # ej: https://auth.osfatun.com.ar
+  viteKcRealm: osfatun
+  viteKcClientId: osfatun-admin
+
+# -- Imagen del frontend ------------------------------------------------------
+image:
+  # Registry + repo. Se sobreescribe por entorno desde el Application YAML.
+  repository: ""          # ej: ghcr.io/org/osfatun-frontend-panel-usuario
+  tag: latest
+  pullPolicy: Always
+
+imagePullSecret:
+  # SENSIBLE — Contenido de ~/.docker/config.json en base64 (ArgoCD UI).
+  # Generar con:
+  #   kubectl create secret docker-registry tmp \
+  #     --docker-server=ghcr.io \
+  #     --docker-username=<USUARIO> \
+  #     --docker-password=<TOKEN> \
+  #     --dry-run=client -o jsonpath='{.data.\.dockerconfigjson}'
+  dockerconfigjson: ""
+
+# -- Frontend (Deployment) ----------------------------------------------------
+frontend:
+  replicas: 1
+  resources:
+    requests:
+      memory: 64Mi
+      cpu: 50m
+    limits:
+      memory: 128Mi
+      cpu: 200m
+
+# -- Ingress ------------------------------------------------------------------
+ingress:
+  host: ""                             # Se sobreescribe por entorno
+  className: pomerium
+  tls: true
+  # Política de acceso de Pomerium (JSON). Restringe quién puede acceder al
+  # frontend por grupos de Keycloak. Se carga desde ArgoCD UI.
+  # Ejemplo: '[{"allow":{"and":[{"claim/groups":"osfatun"}]}}]'
+  policy: ""                             # OBLIGATORIO — cargar desde ArgoCD UI
+  # Reenvía headers de identidad (X-Pomerium-Jwt-Assertion, etc.) al upstream.
+  passIdentityHeaders: true
+
+# -- cert-manager -------------------------------------------------------------
+certManager:
+  issuerEmail: darioblanca.lp@gmail.com

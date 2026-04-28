@@ -1,0 +1,92 @@
+# =============================================================================
+# ArgoCD Application — OSFATUN Frontend Panel Usuario (Desarrollo)
+# =============================================================================
+# Despliega el frontend Vue.js (Panel Usuario) en el namespace desarrollo.
+#
+# Para crear otro entorno (qa, prod), duplicar este archivo cambiando:
+#   - metadata.name               (osfatun-frontend-usuario-qa, etc.)
+#   - destination.namespace       (qa, produccion)
+#   - parameters: ingress.host, image.tag
+#
+# IMPORTANTE — Política de secretos:
+#   Este archivo declara TODOS los parameters (sensibles y no sensibles).
+#   Los sensibles tienen valor vacío ("") para que al desplegar solo
+#   haya que rellenarlos desde la UI de ArgoCD:
+#     Applications → <app> → App Details → PARAMETERS → Edit
+#
+#   Planilla completa de referencia:
+#     kubernetes/documentacion/argocd-frontend-usuario-values.md
+#
+# NOTA sobre variables VITE_*:
+#   La imagen Docker se construye con placeholders (__VITE_*__). Al iniciar
+#   el contenedor, un entrypoint reemplaza los placeholders por los valores
+#   reales de las env vars. Esto permite usar UNA sola imagen para todos los
+#   entornos, gestionando los valores VITE_* desde ArgoCD (sección env.*).
+#
+# Antes de aplicar:
+#   1. ArgoCD instalado y el repo registrado (argocd repo add ...).
+#   2. Cargar imagePullSecret.dockerconfigjson en la UI de ArgoCD ANTES del
+#      primer sync. Alternativamente, crear la app con auto-sync deshabilitado,
+#      cargar el secreto y recién ahí sincronizar.
+# =============================================================================
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: osfatun-frontend-usuario-desa
+  namespace: argocd
+spec:
+  project: default
+
+  source:
+    repoURL: CHANGE_ME_GIT_REPO_URL  # <-- Ej: https://github.com/org/osfatun-infra.git
+    targetRevision: HEAD
+    path: kubernetes/charts/osfatun-frontend-usuario
+
+    helm:
+      parameters:
+        # -------------------------------------------------------------------
+        # Parameters POR-ENTORNO (no sensibles) — pueden vivir en Git.
+        # Para otros entornos, duplicar este archivo y ajustar estos valores.
+        # -------------------------------------------------------------------
+
+        # -- Imagen (registry + tag) --
+        - name: image.repository
+          value: CHANGE_ME_REGISTRY/osfatun-frontend-panel-usuario
+        - name: image.tag
+          value: latest
+
+        # -- Registry (imagePullSecret) --
+        - name: imagePullSecret.dockerconfigjson
+          value: ""
+
+        # -- Variables de entorno del frontend (reemplazo de placeholders) --
+        - name: env.viteApiAddress
+          value: ""                                    # ej: https://backoffice-api.desa.osfatun.com.ar
+        - name: env.viteKcUrl
+          value: ""                                    # ej: https://auth.osfatun.com.ar
+        - name: env.viteKcRealm
+          value: osfatun
+        - name: env.viteKcClientId
+          value: osfatun-admin
+
+        # -- Ingress (dominio y acceso por entorno) --
+        - name: ingress.host
+          value: ""                                    # ej: admin.desa.osfatun.com.ar
+        - name: ingress.policy
+          value: ""                                    # OBLIGATORIO — ej: [{"allow":{"and":[{"claim/groups":"osfatun"}]}}]
+        - name: ingress.passIdentityHeaders
+          value: "true"
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: desarrollo
+
+  syncPolicy:
+    # Recomendación: la PRIMERA vez crear la app con syncPolicy.automated
+    # deshabilitado, cargar el secreto vía UI, y recién ahí activar auto-sync.
+    # automated:
+      # prune: true
+      # selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true   # preserva parameters cargados por UI al re-aplicar

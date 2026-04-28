@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: frontend-usuario-env
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "osfatun-frontend-usuario.labels" . | nindent 4 }}
+data:
+  VITE_API_ADDRESS: {{ .Values.env.viteApiAddress | quote }}
+  VITE_KC_URL: {{ .Values.env.viteKcUrl | quote }}
+  VITE_KC_REALM: {{ .Values.env.viteKcRealm | quote }}
+  VITE_KC_CLIENT_ID: {{ .Values.env.viteKcClientId | quote }}

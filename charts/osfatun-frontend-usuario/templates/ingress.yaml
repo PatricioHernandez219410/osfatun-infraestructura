@@ -1,0 +1,34 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: frontend-usuario
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "osfatun-frontend-usuario.labels" . | nindent 4 }}
+  annotations:
+    cert-manager.io/issuer: letsencrypt-prod
+    {{- if .Values.ingress.policy }}
+    ingress.pomerium.io/policy: {{ .Values.ingress.policy | quote }}
+    {{- end }}
+    {{- if .Values.ingress.passIdentityHeaders }}
+    ingress.pomerium.io/pass_identity_headers: "true"
+    {{- end }}
+spec:
+  ingressClassName: {{ .Values.ingress.className }}
+  {{- if .Values.ingress.tls }}
+  tls:
+    - hosts:
+        - {{ .Values.ingress.host }}
+      secretName: frontend-usuario-tls
+  {{- end }}
+  rules:
+    - host: {{ .Values.ingress.host }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: frontend-usuario
+                port:
+                  number: 80

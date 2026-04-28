@@ -25,6 +25,8 @@ Documentación de respaldo para el cluster K3s de producción de OSFATUN.
 | **Keycloak** | Proveedor de identidad (IdP) OIDC, integrado con Pomerium | `keycloak` |
 | **Redis** | Broker Celery y caché — servicio compartido por todos los entornos | `redis` |
 | **OSFATUN Backend** | API REST Django (Gunicorn) + Celery Worker/Beat. Un namespace por entorno (`osfatun-prod`, `osfatun-qa`, etc.) | `osfatun-*` |
+| **OSFATUN Frontend (Panel Central)** | SPA Vue.js servida por Nginx. Las variables VITE_* se inyectan en build-time (CI). Un namespace por entorno. | `desarrollo`, etc. |
+| **OSFATUN Frontend (Panel Usuario)** | SPA Vue.js servida por Nginx. Mismo patrón que Panel Central (placeholders + entrypoint). Comparte namespace con el panel central. | `desarrollo`, etc. |
 | **ArgoCD** | GitOps / Continuous Delivery — sincroniza el cluster desde Git | `argocd` |
 
 ### Dominios
@@ -34,6 +36,7 @@ Documentación de respaldo para el cluster K3s de producción de OSFATUN.
 | `authenticate.prueba.ticksar.com.ar` | Pomerium — endpoint de autenticación |
 | `auth.osfatun.ticksar.com.ar` | Keycloak — consola de administración y OIDC |
 | `api.osfatun.ticksar.com.ar` | OSFATUN Backend — API REST Django (producción) |
+| `empleados.desa.osfatun.com.ar` | OSFATUN Frontend Panel Central (desarrollo) |
 | `argo.osfatun.ticksar.com.ar` | ArgoCD — UI de gestión GitOps (acceso restringido a grupo `admin`) |
 
 ### Diagrama de dependencias
@@ -88,7 +91,13 @@ Documentación de respaldo para el cluster K3s de producción de OSFATUN.
 | `argocd-ingress.yaml` | ConfigMap insecure + Issuer cert-manager + Ingress para exponer la UI de ArgoCD via Pomerium (restringido a grupo `admin`). |
 | `argocd/redis.yaml` | Application CRD de ArgoCD para desplegar Redis compartido en namespace `redis`. |
 | `argocd/osfatun-backend.yaml` | Application CRD de ArgoCD para el backend producción (`osfatun-prod`). **Solo contiene parameters NO sensibles.** Los secretos se cargan desde la UI de ArgoCD. Duplicar para otros entornos. |
+| `argocd/osfatun-frontend.yaml` | Application CRD de ArgoCD para el frontend Panel Central desarrollo (`desarrollo`). Misma política de secretos que el backend. Duplicar para otros entornos. |
+| `argocd/osfatun-frontend-usuario.yaml` | Application CRD de ArgoCD para el frontend Panel Usuario desarrollo (`desarrollo`). Misma política de secretos. Duplicar para otros entornos. |
+| `charts/osfatun-frontend/` | Helm chart del frontend Vue.js (Panel Central). Nginx sirviendo SPA. Una sola imagen con placeholders; el entrypoint reemplaza `__VITE_*__` por env vars en runtime. Todos los valores (dominio, API URL, Keycloak, etc.) se gestionan desde ArgoCD. |
+| `charts/osfatun-frontend-usuario/` | Helm chart del frontend Vue.js (Panel Usuario). Misma arquitectura que Panel Central. Recursos con sufijo `-usuario` para coexistir en el mismo namespace. |
 | `documentacion/argocd-backend-values.md` | Planilla completa de parameters (sensibles y por-entorno) para cargar al declarar cada instancia del backend en ArgoCD. |
+| `documentacion/argocd-frontend-values.md` | Planilla de parameters del frontend Panel Central por entorno. |
+| `documentacion/argocd-frontend-usuario-values.md` | Planilla de parameters del frontend Panel Usuario por entorno. |
 | `capa1.yaml` | Servicio de ejemplo (whoami). No forma parte del despliegue de producción. |
 | `capa2.yaml` | Servicio de ejemplo (uptime-kuma). No forma parte del despliegue de producción. |
 
@@ -220,11 +229,23 @@ El realm `osfatun`, los clients, roles, grupos y mappers ya fueron creados autom
 
 Para cada client (`osfatun-backend`, `osfatun-frontend`, `osfatun-admin`), agregar las URIs de producción a **Valid redirect URIs** y **Web origins** según corresponda.
 
-**6.3 — Crear el primer usuario administrador:**
+**6.3 — Usuario administrador inicial (automático):**
 
-1. **Users → Add user** → completar datos.
-2. **Credentials** → setear password.
-3. **Groups → Join group → `admin`** (y/o `Administradores`).
+El usuario administrador se crea automáticamente al desplegar el backend si los
+parameters `admin.username` y `admin.password` están definidos en ArgoCD.
+El command `ensure_admin` se ejecuta en cada deploy (después de `migrate`) y es
+idempotente — si el usuario ya existe, no hace nada.
+
+Parameters a cargar en ArgoCD UI (ver `documentacion/argocd-backend-values.md`):
+- `admin.username` — username del admin (SENSIBLE)
+- `admin.password` — password fuerte (SENSIBLE)
+- `admin.email` — email (opcional)
+- `admin.firstName` — nombre (default: Administrador)
+- `admin.lastName` — apellido (default: Sistema)
+- `admin.dni` — número de documento, debe ser único (default: 00000000)
+
+El admin recibe roles `ADMIN` + `ADMIN_PANEL` (acceso total). Los roles deben
+existir previamente en la DB (se crean con `seed_rbac` o manualmente).
 
 **6.4 — Group Mapper para el client `pomerium` (si no se importó):**
 
@@ -237,6 +258,23 @@ Verificar que el mapper `groups` existe en **Clients → `pomerium` → Client s
    - **Add to ID token / access token / userinfo:** ON
 
 Esto permite que Pomerium evalúe políticas basadas en grupos de Keycloak (ej: restringir ArgoCD al grupo `admin`).
+
+**6.5 — Claim `sub` en el client `osfatun-frontend` (CRÍTICO):**
+
+El backend identifica al usuario a través del claim `sub` (UUID de Keycloak) presente en el access token. Si este claim falta, toda la cadena de autenticación se rompe: el backend no puede vincular el token con un `Usuario` en su base de datos, descarta el token silenciosamente, y SimpleJWT devuelve 401.
+
+Verificar que el access token de `osfatun-frontend` incluye `sub`. Si no está:
+
+1. **Clients → `osfatun-frontend` → Client scopes → `osfatun-frontend-dedicated` → Add mapper → By configuration → User Property:**
+   - **Name:** `sub`
+   - **Property:** `id`
+   - **Token Claim Name:** `sub`
+   - **Claim JSON Type:** `String`
+   - **Add to access token:** ON
+   - **Add to ID token:** ON
+   - **Add to userinfo:** ON
+
+> **Nota:** Normalmente `sub` es un claim built-in que Keycloak incluye automáticamente. Si falta, puede deberse a que el realm fue importado con client scopes incompletos o a que alguna configuración sobreescribió los defaults. Para diagnosticar, decodificar el token con `python-jose` y verificar que `sub` aparece con el UUID del usuario.
 
 ### Paso 7 — Integración Pomerium ↔ Keycloak
 
@@ -345,6 +383,98 @@ kubectl apply -f argocd/osfatun-backend.yaml
 6. Cargar los parameters sensibles en la UI de ArgoCD para la nueva app (independientes de los de prod).
 
 El chart es el mismo para los tres entornos — solo cambian los parameters del Application.
+
+### Paso 11 — OSFATUN Frontend Panel Central (Helm + ArgoCD)
+
+Ver planilla de parameters en `documentacion/argocd-frontend-values.md`.
+
+**11.1 — DNS:**
+
+Crear registro A para `empleados.desa.osfatun.com.ar` apuntando a la IP pública del nodo control-plane.
+
+**11.2 — Construir y pushear la imagen (una sola vez, sin build-args):**
+
+La imagen se construye con placeholders (`__VITE_*__`). Al iniciar el contenedor, un entrypoint reemplaza los placeholders por valores reales desde env vars gestionadas por ArgoCD. Una sola imagen sirve para todos los entornos.
+
+```bash
+docker build -f docker/Dockerfile.prod -t <REGISTRY>/osfatun-frontend:v1 .
+docker push <REGISTRY>/osfatun-frontend:v1
+```
+
+**11.3 — Desplegar desarrollo (flujo con secretos vía UI de ArgoCD):**
+
+El `Application` YAML contiene parameters de imagen, dominio y variables VITE_* (todas gestionadas desde ArgoCD). El único secreto (`imagePullSecret.dockerconfigjson`) se carga desde la UI.
+
+```bash
+# 1. Editar argocd/osfatun-frontend.yaml: configurar spec.source.repoURL,
+#    image.repository, y los valores env.* (VITE_API_ADDRESS, Keycloak, etc.).
+
+# 2. Aplicar el Application:
+kubectl apply -f argocd/osfatun-frontend.yaml
+
+# 3. En la UI de ArgoCD:
+#    Applications → osfatun-frontend-desa → App Details → PARAMETERS → EDIT
+#    Agregar imagePullSecret.dockerconfigjson y completar los env.* vacíos.
+
+# 4. Desde la UI pulsar SYNC.
+```
+
+**11.4 — Agregar otro entorno (ejemplo: Producción):**
+
+1. Crear DNS para `empleados.osfatun.com.ar`.
+2. Duplicar `argocd/osfatun-frontend.yaml` → `argocd/osfatun-frontend-prod.yaml`.
+3. Ajustar: `metadata.name`, `destination.namespace`, `ingress.host`, y los `env.*` con los valores de producción.
+4. `kubectl apply -f argocd/osfatun-frontend-prod.yaml`.
+5. Cargar `imagePullSecret.dockerconfigjson` en la UI.
+6. La misma imagen Docker sirve — solo cambian los parameters en ArgoCD.
+
+### Paso 12 — OSFATUN Frontend Panel Usuario (Helm + ArgoCD)
+
+Ver planilla de parameters en `documentacion/argocd-frontend-usuario-values.md`.
+
+Misma arquitectura que el Panel Central: imagen con placeholders + entrypoint que reemplaza en runtime. Usa client `osfatun-admin` de Keycloak.
+
+**12.1 — DNS:**
+
+Crear registro A para el dominio del panel usuario (ej: `admin.desa.osfatun.com.ar`) apuntando a la IP pública del nodo control-plane.
+
+**12.2 — Construir y pushear la imagen:**
+
+```bash
+cd osfatun-frontend-panel-usuario
+docker build -f docker/Dockerfile.prod -t <REGISTRY>/osfatun-frontend-panel-usuario:v1 .
+docker push <REGISTRY>/osfatun-frontend-panel-usuario:v1
+```
+
+**12.3 — Desplegar desarrollo:**
+
+```bash
+# 1. Editar argocd/osfatun-frontend-usuario.yaml: configurar spec.source.repoURL,
+#    image.repository, y los valores env.* (VITE_API_ADDRESS, Keycloak, etc.).
+
+# 2. Aplicar el Application:
+kubectl apply -f argocd/osfatun-frontend-usuario.yaml
+
+# 3. En la UI de ArgoCD:
+#    Applications → osfatun-frontend-usuario-desa → App Details → PARAMETERS → EDIT
+#    Agregar imagePullSecret.dockerconfigjson y completar env.* y ingress.*
+
+# 4. Desde la UI pulsar SYNC.
+```
+
+**12.4 — Keycloak — Verificar client `osfatun-admin`:**
+
+1. El client `osfatun-admin` debe existir con Access Type: public y Standard Flow Enabled.
+2. Agregar Valid Redirect URIs y Web Origins con la URL del panel usuario.
+3. Verificar que el access token incluye el claim `sub` (ver paso 6.5).
+
+**12.5 — Agregar otro entorno:**
+
+1. Crear DNS.
+2. Duplicar `argocd/osfatun-frontend-usuario.yaml`.
+3. Ajustar `metadata.name`, `destination.namespace`, `ingress.host`, `env.*`.
+4. `kubectl apply -f argocd/osfatun-frontend-usuario-<entorno>.yaml`.
+5. Cargar secretos en la UI de ArgoCD.
 
 ---
 
