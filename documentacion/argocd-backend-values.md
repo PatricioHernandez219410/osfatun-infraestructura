@@ -71,9 +71,12 @@ Los nombres son exactamente los que esperás en la UI de ArgoCD (dot-notation de
 | `email.defaultFrom` | `noreply@osfatun.ticksar.com.ar` | `qa-noreply@osfatun.ticksar.com.ar` | `dev-noreply@osfatun.ticksar.com.ar` |
 | `keycloak.url` | `http://keycloak.keycloak.svc.cluster.local:8080` | idem | idem |
 | `keycloak.frontendUrl` | `https://auth.osfatun.ticksar.com.ar` | idem | idem |
-| `keycloak.realm` | `osfatun` | `osfatun-qa` *(si hay realm aparte)* | `osfatun-dev` *(idem)* |
+| `keycloak.realm` | `osfatun` | `osfatun` | `osfatun` |
+| `keycloak.environmentGroup` | `ENT-Produccion` | `ENT-QA` | `ENT-Desarrollo` |
 
 > **Nota sobre dominios:** el chart actual usa `osfatun.ticksar.com.ar` pero `keycloak.yaml` tiene fijado `auth.osfatun.com.ar` en `KC_HOSTNAME`. Verificar cuál es el dominio real del IdP antes de setear `keycloak.frontendUrl`.
+
+> **Nota sobre multi-entorno:** todos los entornos comparten el mismo realm `osfatun` en Keycloak. La separación de usuarios se logra mediante grupos de entorno (`ENT-Desarrollo`, `ENT-QA`, etc.). El backend lee `KEYCLOAK_ENVIRONMENT_GROUP` y filtra la gestión de usuarios al grupo configurado. Pomerium usa el mismo grupo en sus policies para gate-keeping. Ver `documentacion/multi-entorno.md` para el diseño completo.
 
 ### B. Parameters SENSIBLES — SOLO en ArgoCD UI (nunca en Git)
 
@@ -106,6 +109,7 @@ Los nombres son exactamente los que esperás en la UI de ArgoCD (dot-notation de
 |-----------|-------------|
 | `keycloak.adminUser` | Usuario admin del realm master (ej: `admin`). |
 | `keycloak.adminPassword` | Password de ese usuario (mismo valor que `KEYCLOAK_ADMIN_PASSWORD` en `keycloak.yaml`). |
+| `keycloak.environmentGroup` | Grupo de entorno en Keycloak que delimita el pool de usuarios gestionados por esta instancia. Ya declarado en el Application YAML (no sensible). |
 
 > `keycloak.adminClientId` queda en `admin-cli` (default en `values.yaml`), no suele cambiar.
 

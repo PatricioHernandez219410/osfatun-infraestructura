@@ -69,6 +69,43 @@ Documentación de respaldo para el cluster K3s de producción de OSFATUN.
 
 ---
 
+## Estrategia multi-entorno
+
+### Modelo: un realm, múltiples entornos con grupos
+
+Todos los entornos (desarrollo, QA, producción) comparten un **único realm `osfatun`** en Keycloak y una **única instancia de Pomerium** como ingress controller. La separación de usuarios entre entornos se logra mediante **grupos de entorno** en Keycloak.
+
+### Grupos de entorno
+
+En Keycloak, cada entorno tiene un grupo raíz:
+
+| Grupo | Entorno | Uso en Pomerium policy |
+|-------|---------|------------------------|
+| `ENT-Desarrollo` | Desarrollo | `[{"allow":{"and":[{"claim/groups":"ENT-Desarrollo"}]}}]` |
+| `ENT-QA` | QA | `[{"allow":{"and":[{"claim/groups":"ENT-QA"}]}}]` |
+| `admin` | Cluster admin (ArgoCD) | `[{"allow":{"and":[{"claim/groups":"admin"}]}}]` |
+
+Los grupos de rol existentes (Administradores, Operadores, Auditores, Consulta) siguen funcionando de forma independiente para la autorización a nivel de aplicación.
+
+### Cómo funciona
+
+1. **Pomerium** usa `claim/groups` en las policies de cada Ingress para gate-keeping: solo usuarios del grupo de entorno correspondiente pueden acceder a los servicios de ese entorno.
+2. **El backend** lee la env var `KEYCLOAK_ENVIRONMENT_GROUP` (parametrizada como `keycloak.environmentGroup` en el chart) y filtra la gestión de usuarios al grupo configurado. El panel de usuarios solo ve y gestiona usuarios de su entorno.
+3. **Los frontends** apuntan al mismo realm `osfatun`; la autenticación vía keycloak-js funciona igual para todos los entornos.
+
+### Agregar un nuevo entorno
+
+1. Crear el grupo `ENT-<nombre>` en Keycloak.
+2. Duplicar los Application YAMLs de ArgoCD (backend, frontend, frontend-usuario) ajustando: `metadata.name`, `destination.namespace`, `keycloak.environmentGroup`, y `ingress.policy`.
+3. Crear la base de datos del entorno en PostgreSQL.
+4. Configurar DNS y cargar los parameters sensibles en ArgoCD UI.
+
+### Evolución futura
+
+Si se obtiene un segundo dominio `authenticate`, se puede migrar a dos instancias de Pomerium con IngressClasses separados, cada uno apuntando a un realm distinto, logrando aislamiento total de identidad. La transición es limpia: se mueven los usuarios de cada grupo de entorno a su propio realm.
+
+---
+
 ## Inventario de archivos
 
 | Archivo | Descripción |
@@ -93,11 +130,15 @@ Documentación de respaldo para el cluster K3s de producción de OSFATUN.
 | `argocd/osfatun-backend.yaml` | Application CRD de ArgoCD para el backend producción (`osfatun-prod`). **Solo contiene parameters NO sensibles.** Los secretos se cargan desde la UI de ArgoCD. Duplicar para otros entornos. |
 | `argocd/osfatun-frontend.yaml` | Application CRD de ArgoCD para el frontend Panel Central desarrollo (`desarrollo`). Misma política de secretos que el backend. Duplicar para otros entornos. |
 | `argocd/osfatun-frontend-usuario.yaml` | Application CRD de ArgoCD para el frontend Panel Usuario desarrollo (`desarrollo`). Misma política de secretos. Duplicar para otros entornos. |
+| `argocd/osfatun-backend-qa.yaml` | Application CRD de ArgoCD para el backend QA (`osfatun-qa`). Misma estructura que desarrollo, con `keycloak.environmentGroup=ENT-QA`. |
+| `argocd/osfatun-frontend-qa.yaml` | Application CRD de ArgoCD para el frontend Panel Central QA (`qa`). Policy de Pomerium con grupo `ENT-QA`. |
+| `argocd/osfatun-frontend-usuario-qa.yaml` | Application CRD de ArgoCD para el frontend Panel Usuario QA (`qa`). Policy de Pomerium con grupo `ENT-QA`. |
 | `charts/osfatun-frontend/` | Helm chart del frontend Vue.js (Panel Central). Nginx sirviendo SPA. Una sola imagen con placeholders; el entrypoint reemplaza `__VITE_*__` por env vars en runtime. Todos los valores (dominio, API URL, Keycloak, etc.) se gestionan desde ArgoCD. |
 | `charts/osfatun-frontend-usuario/` | Helm chart del frontend Vue.js (Panel Usuario). Misma arquitectura que Panel Central. Recursos con sufijo `-usuario` para coexistir en el mismo namespace. |
 | `documentacion/argocd-backend-values.md` | Planilla completa de parameters (sensibles y por-entorno) para cargar al declarar cada instancia del backend en ArgoCD. |
 | `documentacion/argocd-frontend-values.md` | Planilla de parameters del frontend Panel Central por entorno. |
 | `documentacion/argocd-frontend-usuario-values.md` | Planilla de parameters del frontend Panel Usuario por entorno. |
+| `documentacion/multi-entorno.md` | Documento de diseño de la estrategia multi-entorno: un realm con grupos de entorno, cambios requeridos en el backend, y plan de evolución. |
 | `capa1.yaml` | Servicio de ejemplo (whoami). No forma parte del despliegue de producción. |
 | `capa2.yaml` | Servicio de ejemplo (uptime-kuma). No forma parte del despliegue de producción. |
 

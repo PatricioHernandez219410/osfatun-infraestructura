@@ -142,6 +142,10 @@ keycloak:
   adminUser: ""           # SENSIBLE — ArgoCD UI (usuario admin del realm master)
   adminPassword: ""       # SENSIBLE — ArgoCD UI
   adminClientId: admin-cli
+  # Grupo de entorno en Keycloak que delimita el pool de usuarios gestionados
+  # por esta instancia del backend (ej: "ENT-Desarrollo", "ENT-QA").
+  # El panel de usuarios solo verá y gestionará usuarios de este grupo.
+  environmentGroup: ""   # Se sobreescribe por entorno desde ArgoCD
 
 # -- Email (SMTP) ------------------------------------------------------------
 email:

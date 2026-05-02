@@ -6,7 +6,7 @@
 #
 # Incluye:
 #   - Roles: admin, operador, auditor, consulta
-#   - Grupos: Administradores, Operadores, Auditores, Consulta
+#   - Grupos: Administradores, Operadores, Auditores, Consulta, ENT-Desarrollo, ENT-QA
 #   - Clients: osfatun-backend, osfatun-frontend, osfatun-admin, admin-cli, pomerium
 #   - Client Scopes: roles (group membership + realm role mappers)
 #   - Theme: osfatun (montado via keycloak-theme ConfigMap)
@@ -77,6 +77,14 @@ data:
         },
         {
           "name": "admin",
+          "subGroups": []
+        },
+        {
+          "name": "ENT-Desarrollo",
+          "subGroups": []
+        },
+        {
+          "name": "ENT-QA",
           "subGroups": []
         }
       ],

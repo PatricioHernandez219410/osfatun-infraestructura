@@ -1,0 +1,84 @@
+# =============================================================================
+# ArgoCD Application — OSFATUN Frontend Panel Central (QA)
+# =============================================================================
+# Despliega el frontend Vue.js en el namespace qa.
+# Duplicado de osfatun-frontend.yaml (desarrollo) con ajustes de entorno.
+#
+# IMPORTANTE — Política de secretos:
+#   Este archivo declara TODOS los parameters (sensibles y no sensibles).
+#   Los sensibles tienen valor vacío ("") para que al desplegar solo
+#   haya que rellenarlos desde la UI de ArgoCD:
+#     Applications → <app> → App Details → PARAMETERS → Edit
+#
+#   Planilla completa de referencia:
+#     kubernetes/documentacion/argocd-frontend-values.md
+#
+# Antes de aplicar:
+#   1. ArgoCD instalado y el repo registrado.
+#   2. Grupo "ENT-QA" creado en Keycloak (realm osfatun).
+#   3. Cargar imagePullSecret.dockerconfigjson en la UI de ArgoCD ANTES del
+#      primer sync.
+# =============================================================================
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: osfatun-frontend-qa
+  namespace: argocd
+spec:
+  project: default
+
+  source:
+    repoURL: CHANGE_ME_GIT_REPO_URL  # <-- Ej: https://github.com/org/osfatun-infra.git
+    targetRevision: HEAD
+    path: kubernetes/charts/osfatun-frontend
+
+    helm:
+      parameters:
+        # -------------------------------------------------------------------
+        # Parameters POR-ENTORNO (no sensibles) — pueden vivir en Git.
+        # -------------------------------------------------------------------
+
+        # -- Imagen (registry + tag) --
+        - name: image.repository
+          value: CHANGE_ME_REGISTRY/osfatun-frontend
+        - name: image.tag
+          value: latest
+
+        # -- Registry (imagePullSecret) --
+        - name: imagePullSecret.dockerconfigjson
+          value: ""
+
+        # -- Variables de entorno del frontend (reemplazo de placeholders) --
+        - name: env.viteApiAddress
+          value: ""
+        - name: env.viteAppName
+          value: Osfatun
+        - name: env.viteAppEnv
+          value: ""
+        - name: env.viteDebug
+          value: "false"
+        - name: env.viteKcUrl
+          value: ""
+        - name: env.viteKcRealm
+          value: osfatun
+        - name: env.viteKcClientId
+          value: osfatun-frontend
+        - name: env.viteAdminUrl
+          value: ""
+
+        # -- Ingress (dominio y acceso por entorno) --
+        - name: ingress.host
+          value: ""
+        - name: ingress.policy
+          value: ""                                    # OBLIGATORIO — ej: [{"allow":{"and":[{"claim/groups":"ENT-QA"}]}}]
+        - name: ingress.passIdentityHeaders
+          value: "true"
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: qa
+
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

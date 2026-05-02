@@ -81,7 +81,7 @@ spec:
         - name: ingress.host
           value: empleados.desa.osfatun.com.ar
         - name: ingress.policy
-          value: ""                                    # OBLIGATORIO — ej: [{"allow":{"and":[{"claim/groups":"osfatun"}]}}]
+          value: ""                                    # OBLIGATORIO — ej: [{"allow":{"and":[{"claim/groups":"ENT-Desarrollo"}]}}]
         - name: ingress.passIdentityHeaders
           value: "true"
 

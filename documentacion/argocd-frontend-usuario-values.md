@@ -32,11 +32,16 @@ Todos estos se configuran en el ArgoCD Application YAML o desde la UI de ArgoCD.
 | `ingress.policy` | Por-entorno | (ArgoCD UI) | (ArgoCD UI) |
 | `ingress.passIdentityHeaders` | Default | `true` | `true` |
 
-**`ingress.policy`** — JSON con la política de acceso de Pomerium. Ejemplo para restringir al grupo `osfatun`:
+**`ingress.policy`** — JSON con la política de acceso de Pomerium. Restringe el acceso por grupo de entorno:
 
 ```json
-[{"allow":{"and":[{"claim/groups":"osfatun"}]}}]
+// Desarrollo:
+[{"allow":{"and":[{"claim/groups":"ENT-Desarrollo"}]}}]
+// QA:
+[{"allow":{"and":[{"claim/groups":"ENT-QA"}]}}]
 ```
+
+> **Multi-entorno:** todos los entornos comparten el realm `osfatun`. La separación de acceso se logra con grupos de entorno. Ver `documentacion/multi-entorno.md`.
 
 **`ingress.passIdentityHeaders`** — Cuando `true`, Pomerium reenvía `X-Pomerium-Jwt-Assertion` y otros headers de identidad.
 

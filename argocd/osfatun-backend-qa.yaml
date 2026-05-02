@@ -1,13 +1,8 @@
 # =============================================================================
-# ArgoCD Application — OSFATUN Backend (Producción)
+# ArgoCD Application — OSFATUN Backend (QA)
 # =============================================================================
-# Despliega el backend Django en el namespace osfatun-prod.
-#
-# Para crear otro entorno (qa, dev), duplicar este archivo cambiando:
-#   - metadata.name               (osfatun-backend-qa, osfatun-backend-dev)
-#   - destination.namespace       (osfatun-qa, osfatun-dev)
-#   - parameters: db.name, redis.db, ingress.host, django.envStage,
-#                 django.settingsModule, django.debug, cors.*
+# Despliega el backend Django en el namespace osfatun-qa.
+# Duplicado de osfatun-backend.yaml (desarrollo) con ajustes de entorno.
 #
 # IMPORTANTE — Política de secretos:
 #   Este archivo declara TODOS los parameters (sensibles y no sensibles).
@@ -22,19 +17,15 @@
 #   1. ArgoCD instalado y el repo registrado (argocd repo add ...).
 #   2. Redis compartido desplegado (argocd/redis.yaml).
 #   3. Base de datos creada en PostgreSQL:
-#        CREATE DATABASE osfatun OWNER app;
-#   4. Cargar los parameters sensibles en la UI de ArgoCD ANTES del primer
-#      sync (ver argocd-backend-values.md). Alternativamente, crear la app
-#      con auto-sync deshabilitado, cargar los secretos y recién ahí sincronizar.
-#
-# Tras el primer deploy, los valores sensibles se editan directamente
-# desde la UI de ArgoCD. Si se re-aplica este YAML, los valores vacíos
-# se sobreescriben con lo que haya en la UI gracias a ServerSideApply.
+#        CREATE DATABASE osfatun_qa OWNER app;
+#   4. Grupo "ENT-QA" creado en Keycloak (realm osfatun).
+#   5. Cargar los parameters sensibles en la UI de ArgoCD ANTES del primer
+#      sync (ver argocd-backend-values.md).
 # =============================================================================
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: osfatun-backend-prod
+  name: osfatun-backend-qa
   namespace: argocd
 spec:
   project: default
@@ -48,14 +39,13 @@ spec:
       parameters:
         # -------------------------------------------------------------------
         # Parameters POR-ENTORNO (no sensibles) — pueden vivir en Git.
-        # Para otros entornos, duplicar este archivo y ajustar estos valores.
         # -------------------------------------------------------------------
 
         # -- Imagen (registry + tag) --
         - name: image.repository
-          value: CHANGE_ME_REGISTRY/osfatun-backend      # ej: registry.gitlab.com/org/osfatun-backend
+          value: CHANGE_ME_REGISTRY/osfatun-backend
         - name: image.tag
-          value: latest                                  # idealmente fijar un tag versionado
+          value: latest
 
         # -- Registry (imagePullSecret) --
         - name: imagePullSecret.dockerconfigjson
@@ -71,23 +61,23 @@ spec:
 
         # -- Redis (DB number aislado por entorno) --
         - name: redis.db
-          value: "0"
+          value: "1"
 
         # -- Django (entorno) --
         - name: django.envStage
-          value: DESA
+          value: QA
         - name: django.settingsModule
-          value: config.settings.development
+          value: config.settings.production
         - name: django.debug
-          value: "True"
+          value: "False"
 
         # -- Ingress y CORS (dominio por entorno) --
         - name: ingress.host
-          value: api.osfatun.com.ar
+          value: ""
         - name: cors.whitelist
-          value: "https://api.osfatun.com.ar"
+          value: ""
         - name: cors.trustedOrigins
-          value: "https://api.osfatun.com.ar"
+          value: ""
 
         # -- Keycloak (URLs y realm — NO sensibles) --
         - name: keycloak.url
@@ -97,7 +87,7 @@ spec:
         - name: keycloak.realm
           value: ""
         - name: keycloak.environmentGroup
-          value: "ENT-Desarrollo"
+          value: "ENT-QA"
 
         # -- Django secret key --
         - name: django.secretKey
@@ -111,7 +101,7 @@ spec:
 
         # -- Email SMTP --
         - name: email.defaultFrom
-          value: "noreply@osfatun.com.ar"
+          value: ""
         - name: email.user
           value: ""
         - name: email.password
@@ -119,15 +109,9 @@ spec:
 
   destination:
     server: https://kubernetes.default.svc
-    namespace: osfatun-desa
+    namespace: osfatun-qa
 
   syncPolicy:
-    # Recomendación: la PRIMERA vez crear la app con syncPolicy.automated
-    # deshabilitado, cargar los secretos vía UI, y recién ahí activar auto-sync.
-    # Una vez cargados, este bloque automatizado es seguro.
-    # automated:
-      # prune: true
-      # selfHeal: true
     syncOptions:
       - CreateNamespace=true
-      - ServerSideApply=true   # preserva parameters cargados por UI al re-aplicar
+      - ServerSideApply=true
